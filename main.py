@@ -6,6 +6,7 @@ TURNS_PER_DAY = 24
 TRAVEL_COST = 8.0
 MAX_MARKET_ORDERS = 10
 PASS_RESPONSE = {"farmer": ["PASS"], "hands": [], "market": []}
+_MEMORY = {}
 
 CROPS = {
     "WHEAT": {
@@ -28,7 +29,7 @@ CROPS = {
         "seed_cost": 50,
         "base_price": 60,
         "first_day": 8,
-        "max_day": 11,
+        "max_day": 8,
         "max_yield": 4,
         "ongoing": True,
     },
@@ -36,7 +37,7 @@ CROPS = {
         "seed_cost": 100,
         "base_price": 120,
         "first_day": 10,
-        "max_day": 16,
+        "max_day": 10,
         "max_yield": 4,
         "ongoing": True,
     },
@@ -44,13 +45,14 @@ CROPS = {
         "seed_cost": 80,
         "base_price": 250,
         "first_day": 10,
-        "max_day": 10,
+        "max_day": 12,
         "max_yield": 6,
         "ongoing": False,
     },
 }
 
 ANIMALS = {
+    "GOOSE": {"cost": 300, "product": "EGG", "structure": "COOP", "base_target": 3},
     "COW": {"cost": 400, "product": "MILK", "structure": "PASTURE", "base_target": 2},
     "SHEEP": {"cost": 500, "product": "WOOL", "structure": "PASTURE", "base_target": 2},
 }
@@ -81,7 +83,7 @@ def run_strategy(obs):
     pressure = estimate_opponent_pressure(obs)
     roles = build_role_plan(obs, me, pressure)
     jobs = build_jobs(obs, me, private, roles, pressure)
-    assignments = assign_jobs(me, jobs)
+    assignments = assign_jobs(obs, me, private, jobs)
     market_orders = build_market_orders(obs, me, private, roles, pressure)
 
     workers = [tuple(me["farmer"])] + [tuple(hand) for hand in me.get("hands", [])]
@@ -151,15 +153,53 @@ def build_role_plan(obs, me, pressure):
                 owned_tiles.append((x, y))
 
     owned_tiles.sort(key=lambda pos: (distance_to_shed(pos, len(me["tiles"])), pos[1], pos[0]))
-    crop_mix = crop_targets(day, len(owned_tiles), quadrant_count, prices, pressure)
+    crop_mix = crop_targets(
+        day,
+        len(owned_tiles),
+        quadrant_count,
+        prices,
+        pressure,
+        obs["market"].get("inventory", {}),
+        obs.get("town", {}).get("unlocked_shops", []),
+    )
     animal_plan = animal_targets(day, quadrant_count)
 
     roles = {pos: "CARROT" for pos in owned_tiles}
     remaining = list(owned_tiles)
 
-    for pos in take_front(remaining, animal_plan["COW"]):
+    # Existing infrastructure keeps its purpose when new closer-to-shed land
+    # unlocks; otherwise role re-sorting strands paid-for coops and pastures.
+    animal_remaining = dict(animal_plan)
+    for pos in list(remaining):
+        x, y = pos
+        tile = me["tiles"][y][x]
+        if not isinstance(tile, dict):
+            continue
+        animal = tile.get("animal")
+        if animal == "GOOSE" or tile.get("kind") == "COOP":
+            roles[pos] = "COOP_GOOSE"
+            animal_remaining["GOOSE"] = max(0, animal_remaining["GOOSE"] - 1)
+            remaining.remove(pos)
+        elif animal in ("COW", "SHEEP"):
+            roles[pos] = f"PASTURE_{animal}"
+            animal_remaining[animal] = max(0, animal_remaining[animal] - 1)
+            remaining.remove(pos)
+
+    for pos in list(remaining):
+        x, y = pos
+        tile = me["tiles"][y][x]
+        if not (isinstance(tile, dict) and tile.get("kind") == "PASTURE"):
+            continue
+        animal = "COW" if animal_remaining["COW"] >= animal_remaining["SHEEP"] else "SHEEP"
+        roles[pos] = f"PASTURE_{animal}"
+        animal_remaining[animal] = max(0, animal_remaining[animal] - 1)
+        remaining.remove(pos)
+
+    for pos in take_front(remaining, animal_remaining["GOOSE"]):
+        roles[pos] = "COOP_GOOSE"
+    for pos in take_front(remaining, animal_remaining["COW"]):
         roles[pos] = "PASTURE_COW"
-    for pos in take_front(remaining, animal_plan["SHEEP"]):
+    for pos in take_front(remaining, animal_remaining["SHEEP"]):
         roles[pos] = "PASTURE_SHEEP"
     for pos in take_front(remaining, crop_mix["WHEAT"]):
         roles[pos] = "WHEAT"
@@ -173,52 +213,43 @@ def build_role_plan(obs, me, pressure):
     return roles
 
 
-def crop_targets(day, owned_count, quadrant_count, prices, pressure):
-    if day < 4:
-        wheat = min(4, max(2, owned_count // 10))
-        return {
-            "WHEAT": wheat,
-            "CARROT": max(0, owned_count - wheat),
-            "STRAWBERRY": 0,
-            "TOMATO": 0,
-            "MELON": min(2, max(0, owned_count // 12)),
-        }
+def crop_targets(day, owned_count, quadrant_count, prices, pressure, market_inventory, shops):
+    # Race a profitable first melon wave, then follow actual market headroom.
+    animal_slots = sum(animal_targets(day, quadrant_count).values())
+    crop_slots = max(0, owned_count - animal_slots)
+    wheat = min(crop_slots, 5 + max(0, quadrant_count - 1) * 2 + animal_slots // 3)
 
-    wheat = 5 if quadrant_count == 1 else 7
-    wheat = max(3, min(wheat, owned_count // 4))
+    if day <= 2:
+        melon = min(10 if quadrant_count >= 2 else 7, max(0, crop_slots // 2))
+        strawberry = 0
+        tomato = 0
+    else:
+        melon_headroom = max(0, 10080 - market_inventory.get("MELON", 10000))
+        melon = 0
+        if day <= 18 and prices.get("MELON", 250) >= 95:
+            melon = min(16 if quadrant_count >= 3 else 9, 3 + melon_headroom // 8)
+        melon -= min(8, int(pressure["MELON"] / 4.0))
 
-    melon = 0
-    if day >= 5:
-        melon = 3 if quadrant_count == 1 else 5
-        if day >= 16:
-            melon -= 1
-        if day >= 20:
-            melon -= 2
+        strawberry_demand = sum(
+            1 for shop in shops if shop in {"BRUNCH_SPOT", "ICE_CREAM_SHOP", "SMOOTHIE_SHOP", "FARMERS_MARKET"}
+        )
+        strawberry = 0
+        if day >= 4 and day <= 19 and quadrant_count >= 2 and prices.get("STRAWBERRY", 120) >= 45:
+            strawberry = 4 + strawberry_demand * 3
+            if market_inventory.get("STRAWBERRY", 10000) < 10000:
+                strawberry += 3
+        strawberry -= min(8, int(pressure["STRAWBERRY"] / 4.0))
 
-    strawberry = 0
-    if quadrant_count >= 2 or day >= 9:
-        strawberry = 8 if quadrant_count == 2 else 12
-        if prices.get("STRAWBERRY", CROPS["STRAWBERRY"]["base_price"]) >= 150:
-            strawberry += 2
+        tomato_demand = sum(1 for shop in shops if shop in {"PIZZA_SHOP", "FARMERS_MARKET"})
+        tomato = 0
+        if day >= 4 and day <= 20 and quadrant_count >= 2 and prices.get("TOMATO", 60) >= 22:
+            tomato = 4 + tomato_demand * 4
+        tomato -= min(6, int(pressure["TOMATO"] / 6.0))
 
-    tomato = 0
-    if quadrant_count >= 3 or day >= 14:
-        tomato = 4 if quadrant_count == 3 else 6
-
-    strawberry -= min(6, int(pressure["STRAWBERRY"] / PRESSURE_SCALE["STRAWBERRY"]))
-    melon -= min(3, int(pressure["MELON"] / PRESSURE_SCALE["MELON"]))
-    tomato -= min(3, int(pressure["TOMATO"] / PRESSURE_SCALE["TOMATO"]))
-
-    if prices.get("MELON", CROPS["MELON"]["base_price"]) <= 180:
-        melon -= 1
-    if day >= 23:
-        strawberry -= 3
-        tomato -= 2
-
-    wheat = max(2, wheat)
-    strawberry = max(0, strawberry)
-    tomato = max(0, tomato)
-    melon = max(0, melon)
+    wheat = max(3, wheat)
+    strawberry = max(0, min(14, strawberry))
+    tomato = max(0, min(12, tomato))
+    melon = max(0, min(22, melon))
 
     reserved = wheat + strawberry + tomato + melon
     if reserved > owned_count and reserved > 0:
@@ -238,11 +269,13 @@ def crop_targets(day, owned_count, quadrant_count, prices, pressure):
 
 
 def animal_targets(day, quadrant_count):
-    if quadrant_count < 2 or day < 8:
-        return {"COW": 0, "SHEEP": 0}
-    if quadrant_count == 2 and day < 15:
-        return {"COW": 2, "SHEEP": 2}
-    return {"COW": 3, "SHEEP": 3}
+    if quadrant_count < 2 or day < 3:
+        return {"GOOSE": 0, "COW": 0, "SHEEP": 0}
+    if day < 7:
+        return {"GOOSE": 3, "COW": 2, "SHEEP": 2}
+    if quadrant_count < 4:
+        return {"GOOSE": 5, "COW": 4, "SHEEP": 3}
+    return {"GOOSE": 9, "COW": 5, "SHEEP": 4}
 
 
 def build_jobs(obs, me, private, roles, pressure):
@@ -256,6 +289,7 @@ def build_jobs(obs, me, private, roles, pressure):
     total_items = total_accessible_items(me, private)
     seed_stock = {crop: private.get("seeds", {}).get(crop, 0) for crop in CROPS}
     plant_candidates = []
+    fertilize_candidates = []
 
     for y, row in enumerate(me["tiles"]):
         for x, tile in enumerate(row):
@@ -267,7 +301,9 @@ def build_jobs(obs, me, private, roles, pressure):
 
             if tile is None:
                 if role.startswith("PASTURE_"):
-                    jobs.append(make_job(pos, ["BUILD_PASTURE"], 150.0 if day < 18 else 90.0))
+                    jobs.append(make_job(pos, ["BUILD_PASTURE"], 360.0 if day < 18 else 120.0))
+                elif role == "COOP_GOOSE":
+                    jobs.append(make_job(pos, ["BUILD_COOP"], 360.0 if day < 18 else 120.0))
                 else:
                     crop = role
                     value = plant_value(crop, prices, pressure, day, hour)
@@ -280,7 +316,7 @@ def build_jobs(obs, me, private, roles, pressure):
 
             kind = tile.get("kind")
             if kind == "WEED":
-                jobs.append(make_job(pos, ["DIG"], 52.0 if day < 12 else 40.0))
+                jobs.append(make_job(pos, ["DIG"], 150.0 if day < 24 else 90.0))
                 continue
 
             if kind == "PLANT":
@@ -295,6 +331,12 @@ def build_jobs(obs, me, private, roles, pressure):
                     jobs.append(make_job(pos, ["HARVEST"], value))
                     continue
 
+                fertilize_value = fertilizer_job_value(crop, tile, age, day, prices)
+                if fertilize_value > 0:
+                    fertilize_candidates.append(
+                        make_job(pos, ["FERTILIZE"], fertilize_value, requires={"FERTILIZER": 1})
+                    )
+
                 if should_water(tile, crop, age):
                     jobs.append(make_job(pos, ["WATER"], water_job_value(crop, age, dry, day, days_left)))
 
@@ -306,8 +348,8 @@ def build_jobs(obs, me, private, roles, pressure):
                     jobs.append(make_job(pos, ["DIG"], 24.0))
                 continue
 
-            if kind == "PASTURE":
-                desired_animal = role.split("_", 1)[1] if role.startswith("PASTURE_") else None
+            if kind in ("PASTURE", "COOP"):
+                desired_animal = role.split("_", 1)[1] if role.startswith(("PASTURE_", "COOP_")) else None
                 animal = tile.get("animal")
                 if animal is None:
                     if desired_animal and total_items.get(desired_animal, 0) > 0:
@@ -315,7 +357,8 @@ def build_jobs(obs, me, private, roles, pressure):
                     continue
 
                 if not tile.get("fed_today", False):
-                    jobs.append(make_job(pos, ["FEED"], 950.0, requires={"WHEAT": 1}))
+                    urgency = 1800.0 if tile.get("consecutive_unfed", 0) >= 1 else 720.0
+                    jobs.append(make_job(pos, ["FEED"], urgency, requires={"WHEAT": 1}))
                 if not tile.get("cared_today", False):
                     jobs.append(make_job(pos, ["CARE"], 180.0))
                 if tile.get("fertilizer_available", False):
@@ -332,6 +375,10 @@ def build_jobs(obs, me, private, roles, pressure):
                 continue
             seed_stock[crop] -= 1
             jobs.append(make_job(pos, ["PLANT", crop], value))
+
+    fertilizer_available = total_items.get("FERTILIZER", 0)
+    fertilize_candidates.sort(key=lambda job: job["value"], reverse=True)
+    jobs.extend(fertilize_candidates[:fertilizer_available])
 
     return jobs
 
@@ -355,9 +402,11 @@ def should_harvest(tile, crop, age, day):
         return False
     if data["ongoing"]:
         return True
+    if age < data["first_day"]:
+        return False
     if age >= data["max_day"]:
         return True
-    if day >= TOTAL_DAYS - ENDGAME_DAYS.get(crop, 2):
+    if day >= TOTAL_DAYS - 1:
         return True
     return False
 
@@ -366,9 +415,12 @@ def should_water(tile, crop, age):
     data = CROPS[crop]
     if tile.get("watered_today", False):
         return False
+    if tile.get("consecutive_unwatered", 0) >= 1:
+        return True
     if data["ongoing"]:
-        return tile.get("consecutive_unwatered", 0) >= 1 or age < data["first_day"]
-    return True
+        return tile.get("fertilized_until_day", -1) >= tile.get("planted_day", 0) + age
+    window_start = (data["max_day"] + 1) // 2
+    return window_start <= age <= data["max_day"]
 
 
 def harvest_bonus(crop, day, days_left):
@@ -384,7 +436,7 @@ def harvest_bonus(crop, day, days_left):
 
 def water_job_value(crop, age, dry, day, days_left):
     data = CROPS[crop]
-    value = 95.0 if dry >= 1 else 50.0
+    value = 1500.0 if dry >= 1 else 115.0
     if not data["ongoing"] and age >= max(1, (data["max_day"] + 1) // 2):
         value += 28.0
     if crop == "CARROT" and day < 6:
@@ -399,9 +451,9 @@ def plant_value(crop, prices, pressure, day, hour):
     if day >= TOTAL_DAYS - data["first_day"]:
         return -1.0
 
-    value = data["max_yield"] * prices.get(crop, data["base_price"]) - data["seed_cost"]
-    value *= max(0.25, (TURNS_PER_DAY - hour - 1) / TURNS_PER_DAY)
-    value /= 10.0
+    net_value = data["max_yield"] * prices.get(crop, data["base_price"]) - data["seed_cost"]
+    time_factor = max(0.35, (TURNS_PER_DAY - hour - 1) / TURNS_PER_DAY)
+    value = 100.0 + net_value * time_factor / 3.0
 
     if crop == "CARROT" and day < 6:
         value *= 1.55
@@ -426,6 +478,26 @@ def plant_value(crop, prices, pressure, day, hour):
     return value
 
 
+def fertilizer_job_value(crop, tile, age, day, prices):
+    schedules = {"TOMATO": (8, 1, 4), "STRAWBERRY": (10, 2, 4)}
+    if crop not in schedules or tile.get("fertilized_until_day", -1) >= day:
+        return 0.0
+    first, interval, count = schedules[crop]
+    last = first + interval * (count - 1)
+    if age < first - 1 or age > last:
+        return 0.0
+    bonus_yields = sum(
+        1
+        for future_age in range(age + 1, min(last, age + 3) + 1)
+        if future_age >= first and (future_age - first) % interval == 0
+    )
+    gain = bonus_yields * prices.get(crop, CROPS[crop]["base_price"])
+    fertilizer_price = prices.get("FERTILIZER", PRODUCT_BASE_PRICE["FERTILIZER"])
+    if gain <= fertilizer_price * 1.20:
+        return 0.0
+    return 180.0 + gain - fertilizer_price
+
+
 def build_market_orders(obs, me, private, roles, pressure):
     day = obs.get("day", 0)
     hour = obs.get("hour", 0)
@@ -434,38 +506,53 @@ def build_market_orders(obs, me, private, roles, pressure):
     seeds = private.get("seeds", {})
     money = int(me.get("money", 0))
     orders = []
+    cash_floor = operating_cash_floor(day, len(me.get("unlocked_quadrants", [])))
 
     current_load = shed_load(shed)
+    fertilizer_reserve = desired_fertilizer_reserve(me, day, prices)
+    feed_reserve = desired_wheat_buffer(obs, me, private)
     for item, count in sorted(shed.items(), key=lambda pair: sell_priority(pair[0], prices, pressure, day), reverse=True):
-        if count <= 0:
+        if count <= 0 or item in ANIMALS:
+            continue
+        if item == "WHEAT":
+            sell_count = count - feed_reserve
+        elif item == "FERTILIZER":
+            sell_count = count - fertilizer_reserve
+        else:
+            sell_count = count
+        if sell_count <= 0:
             continue
         reserve = reserve_price(item, day, current_load, pressure)
         if prices.get(item, 0) >= reserve or day >= TOTAL_DAYS - 2:
-            orders.append(["SELL", item, int(count)])
+            orders.append(["SELL", item, int(sell_count)])
 
     planned_spend = 0
-    if hour == 0:
+    if hour <= 2:
         desired_hands = desired_hand_count(obs, me, roles)
         current_hands = len(me.get("hands", []))
         hires_today = me.get("hires_today", 0)
         hire_needed = max(0, desired_hands - max(current_hands, hires_today))
-        projected_money = money - reserved_seed_budget(roles, private)
+        seed_reserve = reserved_seed_budget(roles, private)
+        projected_money = money
+
+        land_cost = next_land_cost(me)
+        if should_buy_land(day, money - planned_spend - seed_reserve, land_cost):
+            planned_spend += land_cost
+            projected_money -= land_cost
+            orders.append(["BUY_LAND"])
 
         for extra_index in range(hire_needed):
             cost = fib_cost(hires_today + extra_index + 1)
+            # Payroll is what protects existing capital; investment purchases
+            # must respect the larger cash floor, but cheap daily hires may use it.
             if projected_money - cost < 100:
                 break
             projected_money -= cost
             planned_spend += cost
             orders.append(["HIRE"])
 
-        land_cost = next_land_cost(me)
-        if should_buy_land(day, money - planned_spend, land_cost):
-            planned_spend += land_cost
-            orders.append(["BUY_LAND"])
-
         wheat_deficit = desired_wheat_buffer(obs, me, private) - total_accessible_items(me, private).get("WHEAT", 0)
-        if wheat_deficit > 0 and money - planned_spend > prices.get("WHEAT", 25) * wheat_deficit + 100:
+        if wheat_deficit > 0 and money - planned_spend > prices.get("WHEAT", 25) * wheat_deficit + cash_floor:
             buy_amount = min(10, wheat_deficit)
             planned_spend += prices.get("WHEAT", 25) * buy_amount
             orders.append(["BUY_PRODUCT", "WHEAT", int(buy_amount)])
@@ -474,16 +561,16 @@ def build_market_orders(obs, me, private, roles, pressure):
         for animal, amount in animal_orders:
             for _ in range(amount):
                 cost = ANIMALS[animal]["cost"]
-                if money - planned_spend < cost + 100:
+                if money - planned_spend < cost + cash_floor:
                     break
                 planned_spend += cost
                 orders.append(["BUY_ANIMAL", animal, 1])
 
-    budget = max(0, money - planned_spend - 80)
+    budget = max(0, money - planned_spend - cash_floor)
     for crop, deficit in prioritized_seed_orders(me, roles, seeds, prices, pressure, day):
         if deficit <= 0 or budget < CROPS[crop]["seed_cost"]:
             continue
-        affordable = min(deficit, budget // CROPS[crop]["seed_cost"])
+        affordable = min(deficit, 12, budget // CROPS[crop]["seed_cost"])
         if affordable <= 0:
             continue
         budget -= affordable * CROPS[crop]["seed_cost"]
@@ -495,14 +582,16 @@ def build_market_orders(obs, me, private, roles, pressure):
 
 
 def desired_animal_buys(obs, me, private, roles):
-    target = {"COW": 0, "SHEEP": 0}
+    target = {"GOOSE": 0, "COW": 0, "SHEEP": 0}
     for role in roles.values():
-        if role == "PASTURE_COW":
+        if role == "COOP_GOOSE":
+            target["GOOSE"] += 1
+        elif role == "PASTURE_COW":
             target["COW"] += 1
         elif role == "PASTURE_SHEEP":
             target["SHEEP"] += 1
 
-    current = {"COW": 0, "SHEEP": 0}
+    current = {"GOOSE": 0, "COW": 0, "SHEEP": 0}
     for row in me["tiles"]:
         for tile in row:
             if isinstance(tile, dict) and tile.get("kind") == "PASTURE" and tile.get("animal") in current:
@@ -510,7 +599,7 @@ def desired_animal_buys(obs, me, private, roles):
 
     total_items = total_accessible_items(me, private)
     orders = []
-    for animal in ("COW", "SHEEP"):
+    for animal in ("GOOSE", "COW", "SHEEP"):
         available = current[animal] + total_items.get(animal, 0)
         deficit = max(0, target[animal] - available)
         if deficit > 0:
@@ -526,7 +615,20 @@ def desired_wheat_buffer(obs, me, private):
                 animals += 1
     if animals == 0:
         return 6
-    return max(8, animals * 2)
+    return max(8, animals * 3)
+
+
+def desired_fertilizer_reserve(me, day, prices):
+    profitable = 0
+    for row in me["tiles"]:
+        for tile in row:
+            if not (isinstance(tile, dict) and tile.get("kind") == "PLANT"):
+                continue
+            crop = tile.get("crop")
+            age = day - tile.get("planted_day", day)
+            if fertilizer_job_value(crop, tile, age, day, prices) > 0:
+                profitable += 1
+    return min(6, profitable)
 
 
 def sell_priority(item, prices, pressure, day):
@@ -546,7 +648,7 @@ def prioritized_seed_orders(me, roles, seeds, prices, pressure, day):
     for crop in SEED_PRIORITY:
         needed = empty_counts.get(crop, 0)
         have = seeds.get(crop, 0)
-        deficit = max(0, needed - have)
+        deficit = max(0, min(needed, 12) - have)
         if deficit <= 0:
             continue
         if day >= TOTAL_DAYS - CROPS[crop]["first_day"]:
@@ -560,29 +662,32 @@ def prioritized_seed_orders(me, roles, seeds, prices, pressure, day):
 def should_buy_land(day, available_money, land_cost):
     if not land_cost:
         return False
-    if day < 3 or day > 20:
+    if day > 16:
         return False
-    buffer = 700 if day < 8 else 1000
+    buffer = 900 if day < 3 else 1200
     return available_money >= land_cost + buffer
+
+
+def operating_cash_floor(day, quadrant_count):
+    if day < 4:
+        return 700
+    if day < 14:
+        return 550 + max(0, quadrant_count - 2) * 100
+    if day < 24:
+        return 450
+    return 250
 
 
 def desired_hand_count(obs, me, roles):
     quadrant_count = len(me.get("unlocked_quadrants", []))
     day = obs.get("day", 0)
-    target = 4 if day < 4 else 5
-
-    if quadrant_count >= 2:
+    if day == 0 and quadrant_count == 1:
+        return 9  # The first land purchase expands the farm during this turn.
+    target = {1: 7, 2: 9, 3: 10, 4: 11}.get(quadrant_count, 9)
+    animal_roles = sum(1 for role in roles.values() if role.startswith(("PASTURE_", "COOP_")))
+    if animal_roles >= 10:
         target += 1
-    if quadrant_count >= 3:
-        target += 1
-    if quadrant_count >= 4:
-        target += 1
-
-    pasture_roles = sum(1 for role in roles.values() if role.startswith("PASTURE_"))
-    if pasture_roles >= 4:
-        target += 1
-
-    return min(8, target)
+    return min(12, target)
 
 
 def reserved_seed_budget(roles, private):
@@ -621,6 +726,8 @@ def reserve_price(item, day, load, pressure):
         if days_left <= 3:
             fraction *= 0.45
 
+    if item in {"MELON", "STRAWBERRY", "MILK", "WOOL"}:
+        fraction = min(fraction, 0.22)
     if days_left <= 2:
         return 0.0
     if load > 0.75:
@@ -659,85 +766,61 @@ def fib_cost(index):
     return b
 
 
-def assign_jobs(me, jobs):
+def assign_jobs(obs, me, private, jobs):
     workers = [tuple(me["farmer"])] + [tuple(hand) for hand in me.get("hands", [])]
     if not workers or not jobs:
         return {}
+    inventories = private.get("inventories", [])
+    shed = private.get("shed", {})
+    player = obs.get("player", 0)
+    step = obs.get("step", obs.get("day", 0) * TURNS_PER_DAY + obs.get("hour", 0))
+    memory = _MEMORY.get(player, {})
+    if step <= memory.get("step", -1):
+        memory = {}
+    previous = memory.get("targets", {})
 
-    scored_pairs = {}
-    max_per_job = []
-    for job_index, job in enumerate(jobs):
-        best = 0.0
-        for worker_index, worker in enumerate(workers):
-            score = job["value"] - manhattan(worker, job["pos"]) * TRAVEL_COST
-            if score > 0:
-                scored_pairs[(worker_index, job_index)] = score
-                best = max(best, score)
-        max_per_job.append((best, job_index))
+    def key_for(job):
+        return (job["pos"], tuple(job["action"]))
 
-    if not scored_pairs:
-        return {}
+    def route_distance(worker_index, job):
+        worker = workers[worker_index]
+        inv = inventories[worker_index] if worker_index < len(inventories) else {}
+        missing = [item for item, count in job.get("requires", {}).items() if inv.get(item, 0) < count]
+        if not missing:
+            return manhattan(worker, job["pos"])
+        if any(shed.get(item, 0) <= 0 for item in missing):
+            return None
+        access = min(
+            shed_tiles(len(me["tiles"])),
+            key=lambda pos: manhattan(worker, pos) + manhattan(pos, job["pos"]),
+        )
+        return manhattan(worker, access) + 1 + manhattan(access, job["pos"])
 
-    job_cap = min(len(jobs), max(len(workers) + 8, len(workers) * 2))
-    selected_jobs = [job_index for best, job_index in sorted(max_per_job, reverse=True)[:job_cap] if best > 0]
-    if not selected_jobs:
-        return {}
-
-    worker_options = {}
+    pairs = []
     for worker_index in range(len(workers)):
-        options = []
-        for local_index, job_index in enumerate(selected_jobs):
-            score = scored_pairs.get((worker_index, job_index), 0.0)
-            if score > 0:
-                options.append((score, local_index, job_index))
-        options.sort(reverse=True)
-        worker_options[worker_index] = options[:8]
-
-    worker_order = sorted(
-        range(len(workers)),
-        key=lambda idx: (len(worker_options[idx]), -worker_options[idx][0][0] if worker_options[idx] else 0.0),
-    )
-
-    memo = {}
-
-    def best_score(order_index, used_mask):
-        key = (order_index, used_mask)
-        if key in memo:
-            return memo[key]
-        if order_index >= len(worker_order):
-            memo[key] = (0.0, -1)
-            return memo[key]
-
-        worker_index = worker_order[order_index]
-        best_total = 0.0
-        best_choice = -1
-
-        skip_total, _ = best_score(order_index + 1, used_mask)
-        best_total = skip_total
-
-        for score, local_index, _job_index in worker_options[worker_index]:
-            bit = 1 << local_index
-            if used_mask & bit:
+        for job_index, job in enumerate(jobs):
+            distance = route_distance(worker_index, job)
+            if distance is None:
                 continue
-            future_total, _ = best_score(order_index + 1, used_mask | bit)
-            total = score + future_total
-            if total > best_total:
-                best_total = total
-                best_choice = local_index
-
-        memo[key] = (best_total, best_choice)
-        return memo[key]
+            sticky = 95.0 if previous.get(worker_index) == key_for(job) else 0.0
+            score = job["value"] + sticky - distance * TRAVEL_COST
+            if score > 0:
+                pairs.append((score, -distance, worker_index, job_index))
 
     assignments = {}
-    used_mask = 0
-    for order_index in range(len(worker_order)):
-        worker_index = worker_order[order_index]
-        _score, choice = best_score(order_index, used_mask)
-        if choice < 0:
+    used_jobs = set()
+    for _score, _distance, worker_index, job_index in sorted(pairs, reverse=True):
+        if worker_index in assignments or job_index in used_jobs:
             continue
-        used_mask |= 1 << choice
-        assignments[worker_index] = jobs[selected_jobs[choice]]
+        assignments[worker_index] = jobs[job_index]
+        used_jobs.add(job_index)
+        if len(assignments) >= len(workers):
+            break
 
+    _MEMORY[player] = {
+        "step": step,
+        "targets": {index: key_for(job) for index, job in assignments.items()},
+    }
     return assignments
 
 
@@ -750,7 +833,8 @@ def action_for_job(worker, inventory, job, board_size):
         if inventory.get(item, 0) < count:
             shed_target = nearest_shed_tile(worker, board_size)
             if worker == shed_target:
-                return ["PICKUP", item, count]
+                batch = 6 if item == "WHEAT" else 2
+                return ["PICKUP", item, max(count, batch)]
             return [step_toward(worker, shed_target)]
 
     if worker == job["pos"]:
