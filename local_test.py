@@ -1,5 +1,6 @@
 import contextlib
 import io
+import sys
 
 
 def _make_env(steps, seed, debug, quiet_engine_warnings=True):
@@ -24,4 +25,6 @@ def run_game(opponent="random", seed=0, steps=720, debug=False, quiet_engine_war
 
 
 if __name__ == "__main__":
-    run_game()
+    opponent = sys.argv[1] if len(sys.argv) > 1 else "random"
+    seed = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+    run_game(opponent=opponent, seed=seed)
