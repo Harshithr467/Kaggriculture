@@ -1185,9 +1185,9 @@ def action_for_profitable_drop(
         for item in sale_items
     ):
         return None
-    threshold = 4 if money < 1200 else 8
-    if hour >= 20:
-        threshold = 1
+    threshold = 8 if money < 1200 else 14
+    if hour >= 22:
+        threshold = 6
     if sale_load < threshold:
         return None
     shed_target = nearest_shed_tile(worker, board_size)
