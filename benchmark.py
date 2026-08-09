@@ -1,7 +1,7 @@
 from local_test import run_game
 
 
-def benchmark(opponents=("starter", "self", "strong"), seeds=range(5), steps=720):
+def benchmark(opponents=("starter", "self", "strong", "rank1"), seeds=range(5), steps=720):
     for opponent in opponents:
         rewards = []
         wins = 0

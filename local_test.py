@@ -30,6 +30,10 @@ def resolve_opponent(opponent):
         "self": "main.py",
         "strong": "opponent_strong.py",
         "stronger": "opponent_strong.py",
+        "rank1": "opponent_rank1.py",
+        "three-premium": "opponent_three_premium.py",
+        "balanced-proxy": "opponent_balanced_proxy.py",
+        "crop-rush": "opponent_crop_rush.py",
     }
     return aliases.get(opponent, opponent)
 

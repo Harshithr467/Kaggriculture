@@ -13,6 +13,8 @@ def summarize(obs, player):
                 key = tile["crop"]
             elif "animal" in tile:
                 key = tile["animal"]
+                if not tile.get("fed_today", False):
+                    counts[f"UNFED_{tile['animal']}"] = counts.get(f"UNFED_{tile['animal']}", 0) + 1
             else:
                 key = tile.get("kind", "OTHER")
             counts[key] = counts.get(key, 0) + 1
@@ -39,10 +41,34 @@ def main():
             f"shed={shed} seeds={seeds} carried={carried} prices={prices}"
         )
     final = env.steps[-1]
+    import main as strategy
+    for inspect_step in (13 * 24, 14 * 24, 16 * 24, 18 * 24):
+        obs = env.steps[inspect_step][0].observation
+        me = obs["farms"][0]
+        pressure = strategy.estimate_opponent_pressure(obs)
+        roles = strategy.build_role_plan(obs, me, pressure)
+        role_counts = {}
+        empty_roles = {}
+        for (x, y), role in roles.items():
+            role_counts[role] = role_counts.get(role, 0) + 1
+            if me["tiles"][y][x] is None:
+                empty_roles[role] = empty_roles.get(role, 0) + 1
+        print(f"role_state step={inspect_step} roles={role_counts} empty={empty_roles}")
     for step, states in enumerate(env.steps):
         action = states[0].action
         if action and "GOOSE" in str(action):
             print(f"goose_action step={step} action={action}")
+        if step < 72 and action and ("'FEED'" in str(action) or "'PICKUP', 'WHEAT'" in str(action)):
+            print(f"feed_action step={step} action={action}")
+        if 24 <= step <= 32:
+            obs = states[0].observation
+            inv = obs.get("private", {}).get("inventories", [])
+            animal_state = []
+            for row in obs["farms"][0]["tiles"]:
+                for tile in row:
+                    if isinstance(tile, dict) and tile.get("animal"):
+                        animal_state.append((tile["animal"], tile["fed_today"], tile["consecutive_unfed"]))
+            print(f"feed_state step={step} inv={inv} animals={animal_state} action={action}")
     print("final", [(state.status, state.reward) for state in final])
 
 
