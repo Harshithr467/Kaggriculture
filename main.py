@@ -4,6 +4,7 @@ import sys
 TOTAL_DAYS = 30
 TURNS_PER_DAY = 24
 TRAVEL_COST = 8.0
+ROUTINE_TRAVEL_COST = 40.0
 MAX_MARKET_ORDERS = 10
 PASS_RESPONSE = {"farmer": ["PASS"], "hands": [], "market": []}
 _MEMORY = {}
@@ -328,9 +329,12 @@ def crop_targets(
         melon_targets = {1: 3, 2: 10, 3: 10, 4: 12}
         strawberry_targets = {1: 0, 2: 16, 3: 33, 4: 38}
     else:
-        wheat_targets = {1: 14, 2: 3, 3: 3, 4: 3}
-        melon_targets = {1: 3, 2: 8, 3: 12, 4: 17}
-        strawberry_targets = {1: 0, 2: 12, 3: 24, 4: 43}
+        # Replay winners establish nearly full premium blocks before day 13.
+        # Seven wheat tiles cover feed while strawberries occupy persistent
+        # acreage and melons provide the earlier lump-sum return.
+        wheat_targets = {1: 14, 2: 7, 3: 7, 4: 7}
+        melon_targets = {1: 3, 2: 12, 3: 10, 4: 14}
+        strawberry_targets = {1: 0, 2: 19, 3: 40, 4: 54}
 
     wheat = min(crop_slots, wheat_targets.get(quadrant_count, 3))
     melon = melon_targets.get(quadrant_count, 0) if day <= 18 and prices.get("MELON", 250) >= 55 else 0
@@ -433,7 +437,8 @@ def build_jobs(obs, me, private, roles, pressure, mode="RANK1_HYBRID"):
                         # quickly enough to reach its first harvest window.
                         defensive_fill = mode in {"COUNTER", "THREE_PREMIUM", "BALANCED_PROXY", "CROP_RUSH"}
                         if crop in {"STRAWBERRY", "MELON"} and day <= 15:
-                            value += (600.0 if empty_owned >= 8 else 280.0) if defensive_fill else 280.0
+                            expansion_bonus = 600.0 if empty_owned >= 8 else 280.0
+                            value += expansion_bonus if mode == "RANK1_HYBRID" or defensive_fill else 280.0
                         elif crop == "WHEAT" and day <= 27 and defensive_fill:
                             value += 380.0 if empty_owned >= 8 else 180.0
                         plant_candidates.append((pos, crop, value))
@@ -457,6 +462,13 @@ def build_jobs(obs, me, private, roles, pressure, mode="RANK1_HYBRID"):
                 yield_units = tile.get("yield_units", 0)
                 dry = tile.get("consecutive_unwatered", 0)
 
+                # A ripe ongoing crop can still become a weed tonight. Water
+                # it before harvesting when it has already missed one day.
+                needs_water = should_water(tile, crop, age)
+                if data["ongoing"] and needs_water and dry >= 1:
+                    jobs.append(make_job(pos, ["WATER"], water_job_value(crop, age, dry, day, days_left)))
+                    continue
+
                 if should_harvest(tile, crop, age, day):
                     value = (
                         yield_units * prices.get(crop, data["base_price"])
@@ -472,7 +484,7 @@ def build_jobs(obs, me, private, roles, pressure, mode="RANK1_HYBRID"):
                         make_job(pos, ["FERTILIZE"], fertilize_value, requires={"FERTILIZER": 1})
                     )
 
-                if should_water(tile, crop, age):
+                if needs_water:
                     jobs.append(make_job(pos, ["WATER"], water_job_value(crop, age, dry, day, days_left)))
 
                 if yield_units > 0 and data["ongoing"]:
@@ -874,7 +886,7 @@ def should_buy_land(day, available_money, land_cost, me=None, prices=None, press
         prices.get("MELON", 0) >= 260 and pressure.get("MELON", 0) < 8
     )
     worker_capacity = len(me.get("hands", [])) >= 10
-    return day <= 14 and available_money >= land_cost + 2500 and utilization >= 0.60 and worker_capacity and premium_market
+    return day <= 14 and available_money >= land_cost + 2500 and utilization >= 0.85 and worker_capacity and premium_market
 
 
 def operating_cash_floor(day, quadrant_count):
@@ -896,7 +908,7 @@ def desired_hand_count(obs, me, roles, mode="RANK1_HYBRID"):
     if mode == "COUNTER" and quadrant_count >= 3:
         day = obs.get("day", 0)
         return 10 if day < 14 else 13 if day < 21 else 12
-    return {1: 7, 2: 8, 3: 11, 4: 12}.get(quadrant_count, 12)
+    return {1: 7, 2: 9, 3: 12, 4: 13}.get(quadrant_count, 13)
 
 
 def reserved_seed_budget(roles, private):
@@ -988,6 +1000,11 @@ def assign_jobs(obs, me, private, jobs):
         memory = {}
     previous = memory.get("targets", {})
     board_size = len(me["tiles"])
+    active_quadrants = [
+        quadrant
+        for quadrant in ("NW", "NE", "SW", "SE")
+        if quadrant in me.get("unlocked_quadrants", [])
+    ]
 
     def key_for(job):
         return (job["pos"], tuple(job["action"]))
@@ -1013,7 +1030,14 @@ def assign_jobs(obs, me, private, jobs):
             if distance is None:
                 continue
             sticky = 95.0 if previous.get(worker_index) == key_for(job) else 0.0
-            pair_scores[(worker_index, job_index)] = job["value"] + sticky - distance * TRAVEL_COST
+            deadline = is_deadline_job(job)
+            affinity = 0.0
+            if worker_index > 0 and active_quadrants and not deadline:
+                home, lane = worker_ripple_lane(worker_index, active_quadrants, board_size)
+                job_quadrant = quadrant_for_pos(job["pos"], board_size)
+                affinity = 45.0 - abs(job["pos"][0] - lane) * 20.0 if home == job_quadrant else -140.0
+            travel_cost = TRAVEL_COST if deadline else ROUTINE_TRAVEL_COST
+            pair_scores[(worker_index, job_index)] = job["value"] + sticky + affinity - distance * travel_cost
 
     assignments = {}
     used_jobs = set()
@@ -1198,6 +1222,25 @@ def step_toward(src, dst):
 
 def distance_to_shed(pos, board_size):
     return min(manhattan(pos, tile) for tile in shed_tiles(board_size))
+
+
+def quadrant_for_pos(pos, board_size):
+    half = board_size // 2
+    horizontal = "W" if pos[0] < half else "E"
+    vertical = "N" if pos[1] < half else "S"
+    return vertical + horizontal
+
+
+def worker_ripple_lane(worker_index, active_quadrants, board_size):
+    quadrant_index = (worker_index - 1) % len(active_quadrants)
+    lane_index = (worker_index - 1) // len(active_quadrants)
+    quadrant = active_quadrants[quadrant_index]
+    half = board_size // 2
+    if quadrant.endswith("W"):
+        lane = max(0, half - 1 - lane_index)
+    else:
+        lane = min(board_size - 1, half + lane_index)
+    return quadrant, lane
 
 
 def manhattan(a, b):
