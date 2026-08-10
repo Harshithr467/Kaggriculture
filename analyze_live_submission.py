@@ -20,6 +20,12 @@ import os
 import subprocess
 import sys
 
+# Team names routinely contain non-ASCII characters (e.g. "Lê Quốc Duy"), and the
+# default console encoding on Windows (cp1252) can't print them -- reconfigure
+# stdout so this doesn't crash mid-report on a scheduled run.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 PROJECT = os.path.dirname(os.path.abspath(__file__))
 KAGGLE = os.path.join(PROJECT, ".venv", "Scripts", "kaggle.exe")
 if not os.path.exists(KAGGLE):
