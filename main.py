@@ -87,10 +87,15 @@ GLUT_ALLOWANCE = {
 # worker index i reliably starts the day in quadrant SPAWN_QUADRANTS[i % 4].
 SPAWN_QUADRANTS = ["NW", "NE", "SW", "SE"]
 
-# Travel is charged as a divisor rather than a subtraction. Job values span
-# 100..2200, so a flat `value - dist * cost` term let a distant high-value job
-# outbid every local one and workers spent ~63% of their actions walking.
-TRAVEL_DIVISOR = 0.85
+# Travel is charged as a divisor rather than a subtraction, and it has to be
+# steep. Roughly fifty jobs are on offer each turn for a dozen workers, so there
+# is always some high-value job across the farm: at 0.85 a FEED worth 2200 four
+# tiles away beat a WATER worth 115 underfoot, and the worker burned four turns
+# walking to earn one action. Tracing showed this -- not oscillation (5.7% of
+# turns) or tile layout -- was where the walking went. Swept over three
+# independent seed sets: everything from 4 upward beats 0.85 decisively and the
+# curve is flat past 12, which cuts movement from 58% to 47% of all actions.
+TRAVEL_DIVISOR = 12.0
 OUT_OF_ZONE_FACTOR = 0.4
 STICKY_FACTOR = 1.55
 PRESSURE_SCALE = {"WHEAT": 12.0, "CARROT": 10.0, "TOMATO": 8.0, "STRAWBERRY": 6.0, "MELON": 5.0}
