@@ -572,7 +572,13 @@ def build_jobs(obs, me, private, roles, pressure):
 
             kind = tile.get("kind")
             if kind == "WEED":
-                jobs.append(make_job(pos, ["DIG"], 420.0 if day < 24 else 180.0))
+                # A weed neither spreads nor damages anything -- it is just an
+                # occupied tile. Clearing one is therefore worth exactly what we
+                # can still grow in its place, and nothing at all once no crop
+                # can reach its first yield before the season ends. The old flat
+                # 180 kept whole crews digging through days 25-30 for tiles that
+                # could never produce again.
+                jobs.append(make_job(pos, ["DIG"], clearing_value(role, prices, pressure, day, hour)))
                 continue
 
             if kind == "PLANT":
@@ -597,7 +603,7 @@ def build_jobs(obs, me, private, roles, pressure):
                         make_job(pos, ["FERTILIZE"], fertilize_value, requires={"FERTILIZER": 1})
                     )
 
-                if should_water(tile, crop, age):
+                if should_water(tile, crop, age, day):
                     jobs.append(make_job(pos, ["WATER"], water_job_value(crop, age, dry, day, days_left, prices)))
 
                 if yield_units > 0 and data["ongoing"]:
@@ -608,8 +614,13 @@ def build_jobs(obs, me, private, roles, pressure):
                     )
                     jobs.append(make_job(pos, ["HARVEST"], value))
 
-                if days_left <= 2 and yield_units == 0 and age >= data["first_day"]:
-                    jobs.append(make_job(pos, ["DIG"], 24.0))
+                if days_left >= 4 and not can_still_yield(tile, crop, day):
+                    # Uproot only a genuinely finished plant, and only while the
+                    # tile still has time to grow a replacement. Testing
+                    # `yield_units == 0 and age >= first_day` instead matches an
+                    # ongoing crop the moment it is harvested, which offers up
+                    # healthy strawberry and tomato plants for digging.
+                    jobs.append(make_job(pos, ["DIG"], min(60.0, clearing_value(role, prices, pressure, day, hour))))
                 continue
 
             if kind in ("PASTURE", "COOP"):
@@ -686,9 +697,36 @@ def should_harvest(tile, crop, age, day):
     return False
 
 
-def should_water(tile, crop, age):
+ONGOING_INTERVAL = {"TOMATO": 1, "STRAWBERRY": 2}
+
+
+def can_still_yield(tile, crop, day):
+    """False once this plant can no longer produce anything we can sell.
+
+    Keeping a plant alive costs a watering every day. Once its remaining
+    schedule runs past the end of the season, or it has already fired all its
+    scheduled productions, that watering buys nothing -- the tile is finished
+    and the worker should be somewhere else.
+    """
+    if tile.get("yield_units", 0) > 0:
+        return True
+    data = CROPS[crop]
+    planted = tile.get("planted_day", day)
+    last_sellable_day = TOTAL_DAYS - 1
+    if not data["ongoing"]:
+        return planted + data["first_day"] <= last_sellable_day
+    interval = ONGOING_INTERVAL.get(crop, 1)
+    first = planted + data["first_day"]
+    final = first + interval * (data["max_yield"] - 1)
+    next_production = first if day < first else day + 1
+    return next_production <= min(final, last_sellable_day)
+
+
+def should_water(tile, crop, age, day=None):
     data = CROPS[crop]
     if tile.get("watered_today", False):
+        return False
+    if day is not None and not can_still_yield(tile, crop, day):
         return False
     if tile.get("consecutive_unwatered", 0) >= 1:
         return True
@@ -723,6 +761,25 @@ def water_job_value(crop, age, dry, day, days_left, prices=None):
     if crop == "CARROT" and day < 6:
         value += 16.0
     return value
+
+
+def clearing_value(role, prices, pressure, day, hour):
+    """What freeing this tile is worth: whatever we can still put on it."""
+    if role in CROPS:
+        replant = plant_value(role, prices, pressure, day, hour)
+    elif role.startswith(("PASTURE_", "COOP_")):
+        animal = role.split("_", 1)[1]
+        replant = 420.0 if day <= LAST_USEFUL_ANIMAL_DAY.get(animal, 18) else -1.0
+    else:
+        replant = -1.0
+
+    if replant <= 0:
+        # Nothing can mature here any more. Leave it and go water something.
+        return 4.0
+    # Digging is the first of several actions the tile still needs, so it is
+    # worth a fraction of the crop it unlocks, capped so it never outbids a
+    # harvest or a rescue watering.
+    return min(420.0, 70.0 + 0.5 * replant)
 
 
 def plant_value(crop, prices, pressure, day, hour):
