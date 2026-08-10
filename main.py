@@ -401,6 +401,19 @@ DAILY_ANIMAL_YIELD = {"GOOSE": 2.0, "COW": 1.5, "SHEEP": 4.0 / 3.0}
 ANIMAL_FIRST_YIELD = {"GOOSE": 4, "COW": 8, "SHEEP": 6}
 # Latest day a purchase still repays its cost before the season ends.
 LAST_USEFUL_ANIMAL_DAY = {"GOOSE": 23, "COW": 18, "SHEEP": 20}
+# Ceiling on total animals by quadrants owned, before demand headroom applies.
+#
+# Sized by what the crew can actually tend, not by what the market can absorb.
+# CARE banks a whole extra unit onto an animal's next production -- $160-250 for
+# one action on a cow or sheep, the best action in the game -- but a steep
+# TRAVEL_DIVISOR means a worker will not cross the farm to deliver it. Live
+# replays showed opponents beating us in close games with 14 animals at 74% care
+# coverage while we ran 16 at 60%: every animal past the tending limit still
+# eats a wheat a day and returns a fraction of its yield.
+#
+# Module-level so benchmark_sweep.py can vary it.
+ANIMAL_TOTAL_CAP = {1: 4, 2: 9, 3: 13, 4: 15}
+
 # What one worker-action earns when spent on something else. Used to price the
 # ~3 actions a day each animal consumes, so the herd stops growing at the point
 # where it starts cannibalising the crop schedule.
@@ -480,7 +493,7 @@ def animal_targets(day, quadrant_count, prices=None, market_signals=None, market
     # Each animal costs roughly three worker-actions a day (fetch wheat, feed,
     # care, amortised harvest and fertilizer). Past ~18 animals the herd eats
     # the whole labour budget and the crops die of neglect.
-    total_cap = {1: 5, 2: 10, 3: 15, 4: 17}.get(quadrant_count, 17)
+    total_cap = ANIMAL_TOTAL_CAP.get(quadrant_count, ANIMAL_TOTAL_CAP[4])
     if day < 3:
         total_cap = min(total_cap, 4)
     days_left = max(4, TOTAL_DAYS - day - 2)
