@@ -26,14 +26,16 @@ def run_game(opponent="random", seed=0, steps=720, debug=False, quiet_engine_war
 
 
 def resolve_opponent(opponent):
+    """Friendly names for opponents; anything else is passed through.
+
+    Built-in names `random`, `starter` and `pass` come from the environment.
+    For a head-to-head against a previous version of our own agent, use
+    benchmark_ab.py instead -- it loads any git revision and plays both seats.
+    """
     aliases = {
         "self": "main.py",
         "strong": "opponent_strong.py",
         "stronger": "opponent_strong.py",
-        "rank1": "opponent_rank1.py",
-        "three-premium": "opponent_three_premium.py",
-        "balanced-proxy": "opponent_balanced_proxy.py",
-        "crop-rush": "opponent_crop_rush.py",
     }
     return aliases.get(opponent, opponent)
 
