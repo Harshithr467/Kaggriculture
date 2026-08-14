@@ -132,3 +132,48 @@ fix it (2.0 gave 13/16 then 10/20 with both neighbours losing). It needs the
 `townShopUnlockInterval = 3` schedule modelled, which is work rather than a sweep.
 
 ---
+
+## Checkpoint 0b — multi-opponent benchmark built and first re-test
+
+`benchmark_pool.py` (`c78c4b5`) plays a candidate against four structurally
+different builds, in parallel across processes, and reports win rate **and** our
+own absolute score per opponent, flagging when the two disagree.
+
+**First absolute strength reading this project has had.** Current agent vs pool,
+seeds 240–247:
+
+| opponent | wins | our score | their score | margin |
+|---|---|---|---|---|
+| HEAD (self-play) | 8/16 | 73,785 | 73,785 | +0 |
+| `a49c8d3` | 9/16 | 73,418 | 73,129 | +289 |
+| `f454950` | 11/16 | 73,484 | 71,356 | +2,128 |
+| `c34629c` | 15/16 | 74,999 | 58,874 | +16,124 |
+| **POOLED** | **43/64 (67.2%)** | **73,921** | 69,286 | **+4,635** |
+
+Monotone against our own history, and exactly 50% against ourselves — the
+instrument passes its sanity checks. **67.2% pooled is the number to ratchet.**
+
+**Re-test: `BACKFILL_CROP`.**
+
+| | vs HEAD | `a49c8d3` | `f454950` | `c34629c` | POOLED |
+|---|---|---|---|---|---|
+| WHEAT margin | −2,145 | −1,535 | +3,342 | **+20,428** | 57.8%, **−5,998** |
+
+**Result: REVERT — falsification confirmed, and my earlier +23,068 was itself the
+artifact.** The whole apparent gain sits against one opponent. Against three of
+four builds wheat backfill is neutral-to-negative, and win rate and absolute
+score now agree it is worse. Testing against a single different opponent was not
+a fix for self-play bias, it was a second bias pointing the other way.
+
+**Caveat on the pool itself.** `c34629c` scores 58,874 where our live opponents
+average 74,697, so it is weaker than the field and we beat it 15/16. It earns its
+place on structural difference, but any result that lives only in that column
+should be treated as denial against one build rather than as strength. Watch for
+a pooled verdict that is carried entirely by one row.
+
+**Next investigation** — re-test the two remaining market-facing falsifications
+under the pool: `GLUT_ALLOWANCE` for melon, and `NONONGOING_FERT_MARGIN` for
+fertilizing wheat. Both were judged under self-play. Then the `absorbable_units`
+shop-unlock schedule, which the bias does not touch.
+
+---
