@@ -1049,7 +1049,10 @@ def should_buy_land(day, available_money, land_cost, me=None, prices=None, press
     # The third quadrant is where the winning replays stop: 75 tiles is already
     # more than fourteen hands can work, and $4000 buys eight cows instead.
     if land_cost == 4000:
-        return day <= 14 and available_money >= 15000
+        # Six independent top-10 agents stop at three quadrants in all 41 of
+        # their replays -- none ever buys the fourth. 75 tiles already exceeds
+        # what a dozen hands service well, and $4000 buys ten cows instead.
+        return False
     buffer = {1000: 250, 2000: 600}.get(land_cost, 600)
     return available_money >= land_cost + buffer
 
@@ -1118,6 +1121,12 @@ def sellable_now(item, available, market_inventory, days_left, load):
     if load >= 0.85:
         return available
 
+    # Warehousing for a better price was tested and is heavily negative
+    # (0/12 and 1/12 wins, about -17,000 and -21,000 a game). The shed holds
+    # only 100 items and end-of-day overflow is discarded, so held stock
+    # destroys the next harvest -- and our sale timing already matches the top
+    # agents' (median strawberry sale 53 units below equilibrium against their
+    # 61). Sell as soon as the market can absorb it.
     room = MARKET_I0 + GLUT_ALLOWANCE.get(item, 200) - market_inventory.get(item, MARKET_I0)
     if days_left <= 5:
         # Start the glide path: stock that never sells is stock we grew for free.
