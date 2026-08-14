@@ -90,6 +90,9 @@ GLUT_ALLOWANCE = {
 # stronger agents do, not a lever of its own.
 LATE_WHEAT_PIVOT_DAY = 18
 
+# Which crop takes acreage the explicit targets do not claim. See crop_targets.
+BACKFILL_CROP = "CARROT"
+
 # Earliest day each extra quadrant may be bought, keyed by its price. Mining
 # 508 episodes put us at 1.7 quadrants on day 5 where every group above us sits
 # at 1.0-1.1, and at $932 on day 10 against their ~$5,800 -- we buy land in the
@@ -411,10 +414,18 @@ def crop_targets(day, owned_count, quadrant_count, prices, pressure, market_inve
         overflow -= trimmed
         tomato = max(0, tomato - overflow)
 
-    # Carrot backfills whatever is left. It is the weakest crop per action but
-    # its glut curve is shallow (840 units of headroom), so idle acreage is
-    # always worth more under carrot than under weeds.
-    carrot = max(0, crop_slots - (wheat + strawberry + melon + tomato))
+    # Whatever acreage the four targets leave over gets backfilled, since idle
+    # land is worth less than any crop. Which crop takes it is the single lever
+    # that moves both of our biggest tile-mix gaps at once: mining 508 episodes
+    # puts the strongest seats at 46.7 wheat and 1.2 carrot tiles against our
+    # 31.5 and 7.5, and tiles_CARROT is the most negative crop correlate with
+    # score (r = -0.21). Carrot's glut curve is shallower, but wheat's is
+    # logarithmic -- it never meaningfully crashes -- and the town drains wheat
+    # harder than anything else (we finish 736 units below equilibrium on it).
+    backfill = max(0, crop_slots - (wheat + strawberry + melon + tomato))
+    carrot = backfill if BACKFILL_CROP == "CARROT" else 0
+    if BACKFILL_CROP == "WHEAT":
+        wheat += backfill
 
     return {
         "WHEAT": wheat,
@@ -440,7 +451,16 @@ LAST_USEFUL_ANIMAL_DAY = {"GOOSE": 23, "COW": 18, "SHEEP": 20}
 # eats a wheat a day and returns a fraction of its yield.
 #
 # Module-level so benchmark_sweep.py can vary it.
-ANIMAL_TOTAL_CAP = {1: 4, 2: 9, 3: 13, 4: 15}
+#
+# The ladder used to start at 4 for one quadrant, which throttled the opening:
+# tracing 310 seats by score band showed day-0 animal spend rising with every
+# band (top 10% $1,826, bottom 25% $1,130, us $857) and day-0 seed spend falling
+# with every band. We reached the same final herd the strongest agents do, but
+# over thirty days instead of ten, and a cow bought on day 0 yields eleven times
+# against twice for one bought on day 20. Flattening the ladder measured
+# 33/48 wins and +1,711 a game over three independent seed sets. Pushing on to
+# 18 goes back to losing (3/16, -4,143), so 14 is close to the tending ceiling.
+ANIMAL_TOTAL_CAP = {1: 14, 2: 14, 3: 14, 4: 15}
 
 # What one worker-action earns when spent on something else. Used to price the
 # ~3 actions a day each animal consumes, so the herd stops growing at the point
@@ -521,9 +541,13 @@ def animal_targets(day, quadrant_count, prices=None, market_signals=None, market
     # Each animal costs roughly three worker-actions a day (fetch wheat, feed,
     # care, amortised harvest and fertilizer). Past ~18 animals the herd eats
     # the whole labour budget and the crops die of neglect.
+    # No separate early clamp: land cannot be bought before LAND_EARLIEST_DAY,
+    # so days 0-2 always run on one quadrant and ANIMAL_TOTAL_CAP[1] is already
+    # the binding gate. That entry is the whole early game -- tracing THUNDER
+    # shows it spending $2,400 on animals on day 0 and $6,700 by day 10, against
+    # our $900 and $2,500, to reach the same final herd we do. A cow bought on
+    # day 0 yields eleven times; the same cow bought on day 20 yields twice.
     total_cap = ANIMAL_TOTAL_CAP.get(quadrant_count, ANIMAL_TOTAL_CAP[4])
-    if day < 3:
-        total_cap = min(total_cap, 4)
     days_left = max(4, TOTAL_DAYS - day - 2)
     wheat_price = prices.get("WHEAT", 25)
 
