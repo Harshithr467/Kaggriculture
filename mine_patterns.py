@@ -206,11 +206,29 @@ def extract(path):
     return rows
 
 
+RENAMED = {"hands_final": "hands_peak"}      # column renames across versions
+
+
 def load_existing():
+    """Rows already harvested, migrated to the current column set.
+
+    Rows written by an older version carry columns this one has dropped or
+    renamed, and DictWriter refuses to write an unknown key -- so a stale CSV
+    would break every later run rather than just the changed column.
+    """
     if not os.path.exists(OUT):
         return {}
+    out = {}
     with open(OUT, encoding="utf-8") as fh:
-        return {(r["episode"], r["seat"]): r for r in csv.DictReader(fh)}
+        for row in csv.DictReader(fh):
+            clean = {k: v for k, v in row.items() if k in FIELDS}
+            for old, new in RENAMED.items():
+                if old in row and not clean.get(new):
+                    clean[new] = row[old]
+            for missing in FIELDS:
+                clean.setdefault(missing, 0)
+            out[(clean["episode"], clean["seat"])] = clean
+    return out
 
 
 def save(rows):

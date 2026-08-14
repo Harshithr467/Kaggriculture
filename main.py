@@ -116,6 +116,11 @@ BACKFILL_CROP = "CARROT"
 # first five days and then cannot afford seed. Module-level so it can be swept.
 LAND_EARLIEST_DAY = {1000: 3, 2000: 5, 4000: 8}
 
+# How far a non-ongoing crop's extra yield must clear the fertilizer's own
+# market price before spending it there beats selling it. 99.0 disables the
+# behaviour entirely, which is the value shipped: see the measurement below.
+NONONGOING_FERT_MARGIN = 99.0
+
 # Non-ongoing crops (WHEAT, CARROT, MELON) do not produce on a schedule: they
 # gain a unit on each day they are *watered* inside ages
 # (max_day + 1) // 2 .. max_day, and two units on a watered day while
@@ -129,7 +134,15 @@ LAND_EARLIEST_DAY = {1000: 3, 2000: 5, 4000: 8}
 # three wheat units are ~$75 against a ~$100 fertilizer we would otherwise
 # sell, plus the action. Sweeping the margin a fertilize had to clear measured
 #     99.0 (off) +0 control   1.20 -186   0.60 -8,607   0.30 -14,092 (0/16)
-# so fertilizer_job_value stays restricted to the ongoing crops.
+#
+# Re-tested against the four-opponent pool once self-play bias was found, since
+# the original verdict came from self-play. It holds, and more strongly:
+#     99.0  57.8% win  78,102 ours     1.20  -3.1pp  -161     0.60  -21.9pp  -9,580
+# 0.60 loses against every opponent separately, not just pooled, so unlike the
+# wheat-backfill result this is not one column carrying the verdict. The code
+# stays in place at 99.0 -- verified an exact no-op, 75,568 both sides -- so a
+# later checkpoint can re-test it by moving one constant instead of rebuilding
+# the mechanic from scratch, which is what deleting it last time cost.
 
 # Spawn order of shed-access tiles; hands cycle through these each day, so
 # worker index i reliably starts the day in quadrant SPAWN_QUADRANTS[i % 4].
@@ -688,7 +701,7 @@ def build_jobs(obs, me, private, roles, pressure):
                     jobs.append(make_job(pos, ["HARVEST"], value))
                     continue
 
-                fertilize_value = fertilizer_job_value(crop, tile, age, day, prices)
+                fertilize_value = fertilizer_job_value(crop, tile, age, day, prices, days_left)
                 if fertilize_value > 0:
                     fertilize_candidates.append(
                         make_job(pos, ["FERTILIZE"], fertilize_value, requires={"FERTILIZER": 1})
@@ -908,15 +921,52 @@ def plant_value(crop, prices, pressure, day, hour):
     return value
 
 
-def fertilizer_job_value(crop, tile, age, day, prices):
-    # Only ongoing crops are here. Fertilizer does work on wheat and carrot --
-    # it doubles them, see the note on NONONGOING_FERT_MARGIN -- but paying a
-    # ~$100 fertilizer and an action for ~$75 of wheat measured 0/16 wins and
-    # -14,092 a game, so those crops are deliberately excluded.
-    schedules = {"TOMATO": (8, 1, 4), "STRAWBERRY": (10, 2, 4)}
-    if crop not in schedules or tile.get("fertilized_until_day", -1) >= day:
+def nonongoing_fertilizer_units(crop, tile, age, days_left):
+    """Extra units one FERTILIZE buys on a non-ongoing crop.
+
+    These crops gain nothing on a schedule -- the daily refresh skips them --
+    only on days they are *watered*, inside ages
+    (max_day + 1) // 2 .. max_day, one unit a watering or two while fertilized,
+    capped at max_yield. One FERTILIZE covers day..day+2.
+
+    Wheat's window is ages 2-4 against a cap of 6, so three waterings return 3
+    units bare and 6 fertilized and a single action doubles the tile. Carrot is
+    the same shape, 2 -> 4. Melon's window is ages 6-12 against a cap of 6, so a
+    melon on schedule reaches its cap on waterings alone; the arithmetic returns
+    0 for it without melon being special-cased.
+    """
+    data = CROPS[crop]
+    if data["ongoing"]:
+        return 0
+    window_start = (data["max_day"] + 1) // 2
+    last = data["max_day"]
+    if days_left < last - age:          # must live long enough to be watered
+        return 0
+    held = tile.get("yield_units", 0)
+    remaining = sum(1 for a in range(age, last + 1) if a >= window_start)
+    covered = sum(1 for a in range(age, age + 3) if window_start <= a <= last)
+    if not remaining or not covered:
+        return 0
+    cap = data["max_yield"]
+    return min(cap, held + remaining + covered) - min(cap, held + remaining)
+
+
+def fertilizer_job_value(crop, tile, age, day, prices, days_left=TOTAL_DAYS):
+    if tile.get("fertilized_until_day", -1) >= day:
         return 0.0
+
     fertilizer_price = prices.get("FERTILIZER", PRODUCT_BASE_PRICE["FERTILIZER"])
+
+    bonus_units = nonongoing_fertilizer_units(crop, tile, age, days_left)
+    if bonus_units:
+        gain = bonus_units * prices.get(crop, CROPS[crop]["base_price"])
+        if gain <= fertilizer_price * NONONGOING_FERT_MARGIN:
+            return 0.0
+        return 180.0 + gain - fertilizer_price
+
+    schedules = {"TOMATO": (8, 1, 4), "STRAWBERRY": (10, 2, 4)}
+    if crop not in schedules:
+        return 0.0
     first, interval, count = schedules[crop]
     last = first + interval * (count - 1)
     if age < first - 1 or age > last:
@@ -1081,7 +1131,7 @@ def desired_fertilizer_reserve(me, day, prices):
                 continue
             crop = tile.get("crop")
             age = day - tile.get("planted_day", day)
-            if fertilizer_job_value(crop, tile, age, day, prices) > 0:
+            if fertilizer_job_value(crop, tile, age, day, prices, TOTAL_DAYS - day) > 0:
                 profitable += 1
     return min(6, profitable)
 

@@ -184,3 +184,64 @@ fertilizing wheat. Both were judged under self-play. Then the `absorbable_units`
 shop-unlock schedule, which the bias does not touch.
 
 ---
+
+## Checkpoint 0c — all three market-facing falsifications re-tested under the pool
+
+**Headline: self-play bias was real, and it overturned nothing.** All three
+verdicts stand. The instrument was flawed; the conclusions were not.
+
+**Melon glut** (seeds 180–187):
+
+| | win rate | Δ | our score | Δ |
+|---|---|---|---|---|
+| MELON=150 (control) | 78.1% | +0.0 | 85,110 | +0 |
+| MELON=60 | 43.8% | **−34.4** | 85,881 | **+772** |
+| MELON=20 | 39.1% | −39.1 | 75,160 | −9,949 |
+
+REVERT — and the disagreement flag earned its keep. Holding melon back *raises
+our own money* and *destroys the win rate*, because dumping melon is an attack:
+it crashes a shared market opponents lean on harder than we do. The original
+self-play verdict was right for a reason I had not understood.
+
+**Fertilizing wheat** (seeds 170–177):
+
+| | win rate | Δ | our score | Δ |
+|---|---|---|---|---|
+| 99.0 off (control) | 57.8% | +0.0 | 78,102 | +0 |
+| 1.20 | 54.7% | −3.1 | 77,941 | −161 |
+| 0.60 | 35.9% | −21.9 | 68,522 | −9,580 |
+
+REVERT. Monotone, both metrics agree, and 0.60 loses against **each** opponent
+separately — unlike wheat backfill, no single column carries this. The code is
+kept at 99.0, verified an exact no-op (75,568 both sides), so a future
+checkpoint can re-test by moving one constant rather than rebuilding the
+mechanic, which is what deleting it cost the first time.
+
+**Two bugs of mine, both fixed.** The pool's module cache keyed on
+`(ref, override)` crashed on dict values, and the obvious fix was worse than the
+crash: `import main` is a singleton, so several cache entries would have pointed
+at one module and every candidate would silently have run the last override
+applied. Now re-applied per game, verified by sweeping `TRAVEL_DIVISOR` (control
++0, alternative +26,153). Separately, that crash truncated `patterns.csv`,
+because the failing run had already opened it in write mode — 1,016 rows lost
+and restored from `7a205ac`, with column migration added so a renamed field can
+never do it again.
+
+**Streak question** (user-reported: "first three wins then always a loss").
+Not supported. Live sequence on 55514059 is `WWWWLLLWWWLLLWWL`, 9W-7L, longest
+streak 4; across 244 episodes it is 6. Wins are positively autocorrelated —
+57.7% after a win against 43.3% after a loss — the opposite of a streak-breaker,
+and the opponent is 3,655 *weaker* after our wins, which rules out the plausible
+ELO-promotion mechanism. Shuffling our own results reproduces a streak of ≥6 in
+89% of shuffles.
+
+**Result: no code change.** Three checkpoints, no agent modification. The
+baseline holds at 67.2% pooled.
+
+**Next investigation** — `absorbable_units` projecting the whole season's town
+demand from today's shop count. Untouched by self-play bias, diagnosed but
+unfixed, and a flat multiplier provably cannot fix it because day 0 and day 20
+want opposite corrections. Needs `townShopUnlockInterval = 3` modelled: expected
+shops remaining, integrated over `days_left`, instead of today's count × 1.2.
+
+---
