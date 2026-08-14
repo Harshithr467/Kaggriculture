@@ -83,6 +83,28 @@ GLUT_ALLOWANCE = {
     "STRAWBERRY": 30,
 }
 
+# Day the endgame wheat pivot opens. Moving it earlier looked worth +3,482 on
+# seeds 150-155 and -1,206 on seeds 160-167, so it is noise and the pivot stays
+# where it was; the constant survives only because sweeping it is how we found
+# that out. Our wheat volume is a symptom of holding more strawberry than the
+# stronger agents do, not a lever of its own.
+LATE_WHEAT_PIVOT_DAY = 18
+
+# Non-ongoing crops (WHEAT, CARROT, MELON) do not produce on a schedule: they
+# gain a unit on each day they are *watered* inside ages
+# (max_day + 1) // 2 .. max_day, and two units on a watered day while
+# fertilized. One FERTILIZE covers day..day+2, which is wheat's entire window
+# (ages 2-4), so a single action takes a wheat tile from 3 units to 6, and a
+# carrot tile from 2 to 4. Melon's window is ages 6-12 against a cap of 6, so
+# an on-schedule melon reaches its cap on waterings alone and fertilizer buys
+# it nothing at all.
+#
+# Tempting, and the rank-1 agent does it ~14 times a game. It still loses:
+# three wheat units are ~$75 against a ~$100 fertilizer we would otherwise
+# sell, plus the action. Sweeping the margin a fertilize had to clear measured
+#     99.0 (off) +0 control   1.20 -186   0.60 -8,607   0.30 -14,092 (0/16)
+# so fertilizer_job_value stays restricted to the ongoing crops.
+
 # Spawn order of shed-access tiles; hands cycle through these each day, so
 # worker index i reliably starts the day in quadrant SPAWN_QUADRANTS[i % 4].
 SPAWN_QUADRANTS = ["NW", "NE", "SW", "SE"]
@@ -346,7 +368,7 @@ def crop_targets(day, owned_count, quadrant_count, prices, pressure, market_inve
     )
     tomato = tomato_targets.get(quadrant_count, 0) if day <= 17 else 0
 
-    if day >= 18:
+    if day >= LATE_WHEAT_PIVOT_DAY:
         # Nothing premium can still mature, so every tile freed by a melon or
         # strawberry harvest goes to wheat: a 5-day cycle that lands before the
         # season ends, on a product the town drains to ~$50 and that never
@@ -836,9 +858,14 @@ def plant_value(crop, prices, pressure, day, hour):
 
 
 def fertilizer_job_value(crop, tile, age, day, prices):
+    # Only ongoing crops are here. Fertilizer does work on wheat and carrot --
+    # it doubles them, see the note on NONONGOING_FERT_MARGIN -- but paying a
+    # ~$100 fertilizer and an action for ~$75 of wheat measured 0/16 wins and
+    # -14,092 a game, so those crops are deliberately excluded.
     schedules = {"TOMATO": (8, 1, 4), "STRAWBERRY": (10, 2, 4)}
     if crop not in schedules or tile.get("fertilized_until_day", -1) >= day:
         return 0.0
+    fertilizer_price = prices.get("FERTILIZER", PRODUCT_BASE_PRICE["FERTILIZER"])
     first, interval, count = schedules[crop]
     last = first + interval * (count - 1)
     if age < first - 1 or age > last:
@@ -849,7 +876,6 @@ def fertilizer_job_value(crop, tile, age, day, prices):
         if future_age >= first and (future_age - first) % interval == 0
     )
     gain = bonus_yields * prices.get(crop, CROPS[crop]["base_price"])
-    fertilizer_price = prices.get("FERTILIZER", PRODUCT_BASE_PRICE["FERTILIZER"])
     if gain <= fertilizer_price * 1.20:
         return 0.0
     return 180.0 + gain - fertilizer_price

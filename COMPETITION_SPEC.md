@@ -110,17 +110,33 @@ if fertilized, capped at `max_yield`.
 **Harvest is gated**: refused while `age < first_yield_day`, no matter how many
 units have accumulated.
 
-What fertilizer is actually worth, per crop:
+Since watering is the only source of yield for these crops — the daily refresh
+skips them entirely — the plain peak is just the number of days in the window,
+and one `FERTILIZE` covers `day`..`day+2`:
 
-| Crop | Plain peak | Fertilized peak | Gain |
-|---|---|---|---|
-| WHEAT | 4 | **6** | +2 (+50%) |
-| CARROT | 3 | **4** | +1 |
-| MELON | 6 | 6 | **nothing** |
+| Crop | Window | Waterings | Plain peak | Fertilized peak | Gain |
+|---|---|---|---|---|---|
+| WHEAT | ages 2–4 | 3 | 3 | **6** | +3 (**+100%**) |
+| CARROT | ages 2–3 | 2 | 2 | **4** | +2 (+100%) |
+| MELON | ages 6–12 | 7 | 6 | 6 | **nothing** |
 
-Melon reaches its cap of 6 on plain watering by age 10 — exactly when harvest
-first becomes legal. Fertilizer only gets there at age 8 and cannot be cashed
-early, so it buys nothing.
+One action covers wheat's entire window, so a single fertilize doubles the tile.
+
+Melon's window is longer than its cap needs, so it gets to 6 on plain watering
+by age 11 and fertilizer buys it no units — only three fewer waterings, and one
+day earlier. Harvest is gated at age 10 either way.
+
+**Measured verdict: do not fertilize wheat or carrot.** The gain is real and the
+rank-1 agent takes it ~14 times a game, but three wheat units are ~$75 against a
+~$100 fertilizer we would otherwise sell, plus the action. Sweeping the margin a
+fertilize must clear, on seeds 170–177:
+
+| Margin | Wins | Margin/game |
+|---|---|---|
+| 99.0 (off) | 4/16 | +0 *(control, exact)* |
+| 1.20 | 7/16 | −186 |
+| 0.60 | 2/16 | −8,607 |
+| 0.30 | 0/16 | −14,092 |
 
 **Ongoing crops** produce on a fixed schedule (`first_yield + k × interval`),
 capped at `max_yield` total productions, then decay to a weed. Base 1 per
