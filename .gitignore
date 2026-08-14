@@ -1,0 +1,15 @@
+# Python bytecode -- regenerated on import, was previously tracked
+__pycache__/
+*.py[cod]
+
+# Local virtualenv (Python, kaggle CLI, kaggle_environments, OpenSpiel)
+.venv/
+
+# Downloaded replays. Several GB and re-downloadable with
+# `analyze_live_submission.py <submission_id>`; the CSV episode listings
+# alongside them are small and stay tracked.
+kaggle_episode_data/replays/
+replays/
+
+# Scratch output
+*.log

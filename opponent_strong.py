@@ -13,7 +13,7 @@ def run_strategy(obs):
     pressure = base.estimate_opponent_pressure(obs)
     roles = build_role_plan(obs, me, pressure)
     jobs = base.build_jobs(obs, me, private, roles, pressure)
-    assignments = base.assign_jobs(me, jobs)
+    assignments = base.assign_jobs(obs, me, private, jobs)
     market_orders = build_market_orders(obs, me, private, roles, pressure)
 
     workers = [tuple(me["farmer"])] + [tuple(hand) for hand in me.get("hands", [])]
@@ -65,9 +65,9 @@ def build_role_plan(obs, me, pressure):
 
 
 def crop_targets(day, owned_count, quadrant_count, prices, pressure):
-    if day < 4:
+    if day < 6:
         wheat = min(3, max(2, owned_count // 12))
-        melon = min(3, max(1, owned_count // 10))
+        melon = 0 if day < 3 else min(2, max(1, owned_count // 14))
         return {
             "WHEAT": wheat,
             "CARROT": max(0, owned_count - wheat - melon),
@@ -76,47 +76,44 @@ def crop_targets(day, owned_count, quadrant_count, prices, pressure):
             "MELON": melon,
         }
 
-    wheat = 4 if quadrant_count == 1 else 5
+    wheat = 3 if quadrant_count == 1 else 4
     wheat = max(2, min(wheat, owned_count // 5))
 
-    melon = 6 if quadrant_count == 1 else 10
+    melon = 4 if quadrant_count == 1 else 7
     strawberry = 0
     tomato = 0
 
-    if quadrant_count >= 2 or day >= 8:
-        strawberry = 10 if quadrant_count == 2 else 16
-    if quadrant_count >= 3 or day >= 14:
-        tomato = 3 if quadrant_count == 3 else 5
+    if quadrant_count >= 2 or day >= 10:
+        strawberry = 7 if quadrant_count == 2 else 11
+    if quadrant_count >= 3 or day >= 16:
+        tomato = 2 if quadrant_count == 3 else 4
 
     if prices.get("MELON", base.CROPS["MELON"]["base_price"]) >= 220:
-        melon += 2
+        melon += 1
     if prices.get("STRAWBERRY", base.CROPS["STRAWBERRY"]["base_price"]) >= 145:
-        strawberry += 3
+        strawberry += 2
 
-    # Keep this opponent committed to premium crops even under pressure.
-    melon -= min(2, int(pressure["MELON"] / 12))
-    strawberry -= min(2, int(pressure["STRAWBERRY"] / 12))
+    # Keep this opponent committed to premium crops, but not suicidal.
+    melon -= min(2, int(pressure["MELON"] / 10))
+    strawberry -= min(2, int(pressure["STRAWBERRY"] / 10))
+    tomato -= min(1, int(pressure["TOMATO"] / 12))
 
     if day >= 22:
         melon = max(2, melon - 2)
         strawberry = max(4, strawberry - 3)
         tomato = max(0, tomato - 1)
 
-    melon = max(3 if day < 18 else 2, melon)
+    melon = max(2 if day < 18 else 1, melon)
     strawberry = max(0, strawberry)
     tomato = max(0, tomato)
 
     reserved = wheat + strawberry + tomato + melon
     if reserved > owned_count and reserved > 0:
-        overflow = reserved - owned_count
-        cut_carrot = min(overflow, max(0, owned_count - reserved))
-        overflow -= cut_carrot
-        if overflow > 0:
-            tomato = max(0, tomato - overflow)
-        reserved = wheat + strawberry + tomato + melon
-        if reserved > owned_count:
-            overflow = reserved - owned_count
-            strawberry = max(0, strawberry - overflow)
+        scale = owned_count / reserved
+        wheat = max(2, int(wheat * scale))
+        strawberry = int(strawberry * scale)
+        tomato = int(tomato * scale)
+        melon = max(1, int(melon * scale))
 
     carrot = max(0, owned_count - wheat - strawberry - tomato - melon)
     return {
@@ -129,13 +126,13 @@ def crop_targets(day, owned_count, quadrant_count, prices, pressure):
 
 
 def animal_targets(day, quadrant_count):
-    if quadrant_count < 2 or day < 8:
+    if quadrant_count < 2 or day < 12:
         return {"COW": 0, "SHEEP": 0}
-    if quadrant_count == 2 and day < 14:
+    if quadrant_count == 2 and day < 18:
         return {"COW": 2, "SHEEP": 2}
-    if quadrant_count == 3 and day < 20:
+    if quadrant_count == 3 and day < 22:
         return {"COW": 3, "SHEEP": 3}
-    return {"COW": 4, "SHEEP": 4}
+    return {"COW": 3, "SHEEP": 4}
 
 
 def build_market_orders(obs, me, private, roles, pressure):
@@ -264,14 +261,14 @@ def desired_wheat_buffer(me, private):
         for tile in row:
             if isinstance(tile, dict) and tile.get("kind") == "PASTURE" and tile.get("animal"):
                 animals += 1
-    return max(10, animals * 3)
+    return max(8, animals * 2)
 
 
 def desired_hand_count(me, roles):
     quadrants = len(me.get("unlocked_quadrants", []))
-    target = 5
+    target = 4
     if quadrants >= 2:
-        target += 2
+        target += 1
     if quadrants >= 3:
         target += 1
     if quadrants >= 4:
@@ -279,7 +276,7 @@ def desired_hand_count(me, roles):
     pasture_roles = sum(1 for role in roles.values() if role.startswith("PASTURE_"))
     if pasture_roles >= 4:
         target += 1
-    return min(10, target)
+    return min(8, target)
 
 
 def should_buy_land(day, available_money, land_cost):
@@ -287,7 +284,7 @@ def should_buy_land(day, available_money, land_cost):
         return False
     if day < 2 or day > 22:
         return False
-    buffer = 350 if day < 8 else 550
+    buffer = 650 if day < 8 else 900
     return available_money >= land_cost + buffer
 
 
@@ -297,14 +294,14 @@ def reserve_price(item, day, load):
     days_left = base.TOTAL_DAYS - day
 
     if item == "MELON":
-        fraction *= 0.72
-    elif item == "STRAWBERRY":
         fraction *= 0.82
+    elif item == "STRAWBERRY":
+        fraction *= 0.88
     elif item in ("MILK", "WOOL"):
         fraction *= 1.05
 
     if days_left <= 6:
-        fraction *= 0.7
+        fraction *= 0.8
     if days_left <= 3:
         fraction *= 0.45
     if load > 0.75:
