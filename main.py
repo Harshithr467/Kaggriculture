@@ -90,6 +90,19 @@ GLUT_ALLOWANCE = {
 # stronger agents do, not a lever of its own.
 LATE_WHEAT_PIVOT_DAY = 18
 
+# How much of the season's town demand to credit against today's shop count,
+# in absorbable_units. Shops unlock every 3 days all season, so 1.0 would mean
+# "assume the town never grows again". See the note there.
+#
+# The understatement is real but raising this flat multiplier does not fix it:
+#     seeds 270-277   2.0  13/16  +2,664
+#     seeds 280-289   2.0  10/20    -387     1.6  -2,532     2.5  -1,670
+# A genuine optimum has slopes, and both neighbours of 2.0 lose on the seed set
+# where 2.0 is neutral, so the first result was an isolated spike. If this is
+# ever worth revisiting it needs the shop-unlock schedule modelled rather than
+# a constant -- day 0 and day 20 want very different numbers.
+FUTURE_DEMAND_SCALE = 1.2
+
 # Which crop takes acreage the explicit targets do not claim. See crop_targets.
 # Backfilling wheat instead looked like the one lever that closes both tile-mix
 # gaps against the field at once, and it loses: 6/16 +1,087 on seeds 220-227,
@@ -525,8 +538,13 @@ def absorbable_units(product, market_inventory, shops, days_left):
     """Units of `product` we can still sell before the price collapses."""
     inventory = market_inventory.get(product, MARKET_I0)
     headroom = MARKET_I0 + GLUT_ALLOWANCE.get(product, 200) - inventory
-    # More shops unlock every 3 days, so today's demand understates the season.
-    future_demand = daily_town_demand(shops, product) * days_left * 1.2
+    # More shops unlock every 3 days, so today's demand badly understates the
+    # season: a game opens with about one shop and finishes with about ten, and
+    # measuring the rest of the season against today's count is worst exactly
+    # when it matters most, on day 0. This is what actually caps the opening
+    # herd -- room_cap in animal_targets, not ANIMAL_TOTAL_CAP, which is why
+    # raising that cap from 7 to 10 changed nothing.
+    future_demand = daily_town_demand(shops, product) * days_left * FUTURE_DEMAND_SCALE
     return headroom + future_demand
 
 
@@ -546,11 +564,10 @@ def animal_targets(day, quadrant_count, prices=None, market_signals=None, market
     # care, amortised harvest and fertilizer). Past ~18 animals the herd eats
     # the whole labour budget and the crops die of neglect.
     # No separate early clamp: land cannot be bought before LAND_EARLIEST_DAY,
-    # so days 0-2 always run on one quadrant and ANIMAL_TOTAL_CAP[1] is already
-    # the binding gate. That entry is the whole early game -- tracing THUNDER
-    # shows it spending $2,400 on animals on day 0 and $6,700 by day 10, against
-    # our $900 and $2,500, to reach the same final herd we do. A cow bought on
-    # day 0 yields eleven times; the same cow bought on day 20 yields twice.
+    # so days 0-2 always run on one quadrant and ANIMAL_TOTAL_CAP[1] governs
+    # them. In practice it does not bind at all early -- room_cap below is far
+    # tighter on day 0 -- so the win from flattening this ladder came from the
+    # two- and three-quadrant entries, mid-game, not from the opening.
     total_cap = ANIMAL_TOTAL_CAP.get(quadrant_count, ANIMAL_TOTAL_CAP[4])
     days_left = max(4, TOTAL_DAYS - day - 2)
     wheat_price = prices.get("WHEAT", 25)
