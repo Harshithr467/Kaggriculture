@@ -91,6 +91,10 @@ GLUT_ALLOWANCE = {
 LATE_WHEAT_PIVOT_DAY = 18
 
 # Which crop takes acreage the explicit targets do not claim. See crop_targets.
+# Backfilling wheat instead looked like the one lever that closes both tile-mix
+# gaps against the field at once, and it loses: 6/16 +1,087 on seeds 220-227,
+# then 11/24 -1,424 on seeds 240-251, pooling to 17/40 and -420. The field's
+# tile mix is a consequence of its build, not a cause we can copy across.
 BACKFILL_CROP = "CARROT"
 
 # Earliest day each extra quadrant may be bought, keyed by its price. Mining
