@@ -90,6 +90,12 @@ GLUT_ALLOWANCE = {
 # stronger agents do, not a lever of its own.
 LATE_WHEAT_PIVOT_DAY = 18
 
+# Earliest day each extra quadrant may be bought, keyed by its price. Mining
+# 508 episodes put us at 1.7 quadrants on day 5 where every group above us sits
+# at 1.0-1.1, and at $932 on day 10 against their ~$5,800 -- we buy land in the
+# first five days and then cannot afford seed. Module-level so it can be swept.
+LAND_EARLIEST_DAY = {1000: 3, 2000: 5, 4000: 8}
+
 # Non-ongoing crops (WHEAT, CARROT, MELON) do not produce on a schedule: they
 # gain a unit on each day they are *watered* inside ages
 # (max_day + 1) // 2 .. max_day, and two units on a watered day while
@@ -1066,8 +1072,7 @@ def prioritized_seed_orders(me, roles, seeds, prices, pressure, day):
 def should_buy_land(day, available_money, land_cost, me=None, prices=None, pressure=None):
     if not land_cost:
         return False
-    earliest_day = {1000: 3, 2000: 5, 4000: 8}.get(land_cost, 30)
-    if day < earliest_day:
+    if day < LAND_EARLIEST_DAY.get(land_cost, 30):
         return False
     # A quadrant is 25 tiles. Even under carrot, 25 tiles clear the $4k top
     # price inside a few days, and animals or melon repay it many times over.
