@@ -244,15 +244,37 @@ WHEAT 525   STRAWBERRY 426   CARROT 327   MILK 327
 EGG 228     TOMATO 228       WOOL 228     MELON 30    FERTILIZER 0
 ```
 
-## 9. Where the official docs are wrong
+## 9. Where the official docs disagree with the code
 
-| Docs say | Actually |
-|---|---|
-| Score = money + inventory marked to market | **Money only.** Unsold stock scores zero. |
-| Quadrants are 8×8 | **5×5** on a 10×10 board |
-| Town centre scales 2× after day 10, 4× after day 20 | **No scaling.** Flat 1/product/day |
-| `townCenterSellInterval` default 12 | Code default **24** |
-| Animals produce nothing if not cared for | They produce the **base 1**; CARE only adds a banked bonus |
+**Requires `kaggle-environments >= 1.32.6`.** A balance change announced in
+August 2026 ([PR #1394](https://github.com/Kaggle/kaggle-environments/pull/1394))
+cut town-centre demand and switched shop sampling to *with replacement*. Some
+doc statements below are not errors — they describe the pre-change balance and
+were never updated. Either way, **trust the code**.
+
+| Docs say | Actually | Cause |
+|---|---|---|
+| Score = money + inventory marked to market | **Money only.** Unsold stock scores zero. | doc error |
+| Quadrants are 8×8 | **5×5** on a 10×10 board | doc error |
+| Animals produce nothing if not cared for | They produce the **base 1**; CARE only adds a banked bonus | doc error |
+| Town centre buys 2×/day, scaling 2× after day 10 and 4× after day 20 | **1×/day, flat, never increases** | Aug 2026 balance change |
+| `townCenterSellInterval` default 12 | Code default **24** | same change |
+| Shops sampled without replacement | **With replacement** — 3 or 4 copies of one shop is common | same change |
+
+**Both changes are already in force.** Verified two ways: the installed source
+carries them, and they are measurable in live replays. Melon appears in no shop,
+so before anyone sells melon its inventory falls at exactly the town-centre
+rate — that rate measures **1.00/day** across our replays and all six top
+agents', and those same replays show up to 4 copies of a single shop.
+
+The practical consequences of the change:
+
+- **Markets absorb far less sell pressure late in the game.** Halving town-centre
+  demand removes about 30 units/day of drain spread across eight products, so
+  gluts persist much longer and per-product depth (§7) matters more, not less.
+- **Games vary enormously.** Wool demand ranges from 1 to 37 per day purely on
+  how many YARN_STOREs happen to spawn. Any fixed crop or herd plan is a bet on
+  the draw; read `town.unlocked_shops` instead.
 
 ## 10. Workers
 
