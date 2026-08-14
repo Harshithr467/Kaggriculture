@@ -68,28 +68,39 @@ def _load_from_git(ref):
     return module
 
 
-def _get_agent(ref, override=None):
-    key = (ref, override)
-    if key in _agents:
-        return _agents[key]
+def _get_agent(ref):
+    """Cache by revision ONLY, never by (revision, override).
+
+    `import main` hands back the one module object, so caching a module under
+    (ref, override) would leave several cache entries pointing at the same
+    object and every candidate would silently run with whichever override was
+    applied last. Overrides are therefore re-applied per game, below.
+    """
+    if ref in _agents:
+        return _agents[ref]
     if ref is None:
         import main as module
     else:
         module = _load_from_git(ref)
-    if override:
-        name, value = override
-        if not hasattr(module, name):
-            raise SystemExit(f"{ref or 'working tree'} has no constant {name!r}")
-        setattr(module, name, value)
-    _agents[key] = module
+    _agents[ref] = module
     return module
 
 
 def _run_one(job):
     label, cand_ref, override, opp_ref, seed, seat = job
     from benchmark_ab import play
-    cand = _get_agent(cand_ref, override)
+    cand = _get_agent(cand_ref)
+    if override:
+        name, value = override
+        if not hasattr(cand, name):
+            raise SystemExit(f"{cand_ref or 'working tree'} has no constant {name!r}")
+        setattr(cand, name, value)
     opp = _get_agent(opp_ref)
+    if opp is cand:
+        raise SystemExit(
+            f"candidate and opponent resolve to the same module ({opp_ref}); "
+            "the override would apply to both. Use a different --ref."
+        )
     mine, theirs = play(cand.agent, opp.agent, seed, seat)
     return label, opp_ref, seed, seat, mine, theirs
 
