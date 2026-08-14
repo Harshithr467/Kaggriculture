@@ -171,6 +171,13 @@ place on structural difference, but any result that lives only in that column
 should be treated as denial against one build rather than as strength. Watch for
 a pooled verdict that is carried entirely by one row.
 
+**Live result of 55514059: 918.5**, against 892.0 for the previous best
+(55397388) and 873.4 for the submission it replaces (55414416). Highest recorded
+on this project. Early scores move on few episodes, so treat it as encouraging
+rather than settled — but the direction agrees with the local 14/20, which is
+the first time a local verdict and a live score have been checked against each
+other here.
+
 **Next investigation** — re-test the two remaining market-facing falsifications
 under the pool: `GLUT_ALLOWANCE` for melon, and `NONONGOING_FERT_MARGIN` for
 fertilizing wheat. Both were judged under self-play. Then the `absorbable_units`
