@@ -13,3 +13,6 @@ replays/
 
 # Scratch output
 *.log
+
+# Downloaded daily episode dumps (~31 MB per episode)
+kaggle_episode_data/daily/*/
