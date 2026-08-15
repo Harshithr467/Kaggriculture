@@ -103,6 +103,30 @@ LATE_WHEAT_PIVOT_DAY = 18
 # a constant -- day 0 and day 20 want very different numbers.
 FUTURE_DEMAND_SCALE = 1.2
 
+# Use expected_town_demand -- which integrates the real shop-unlock schedule
+# over the remaining days -- instead of today's shop count times the flat
+# multiplier above. False reproduces the old formula exactly, so it is a valid
+# control row.
+#
+# It stays False, and the reason is worth more than the change would have been.
+# The model is right: min(8, day // 3) matches 120 of 120 day-observations in
+# real replays, and it independently rediscovers that melon has no shop demand.
+# Against the four-opponent pool on seeds 310-317 it still loses 18.8 points of
+# win rate and 7,857 of our own money, against HEAD and a49c8d3 individually as
+# well as pooled.
+#
+# absorbable_units is not read as a forecast, it is read as a throttle -- it
+# caps the herd through room_cap and the acreage through crop_tile_cap. The old
+# under-estimate was load-bearing: it stood in for a limit on what the crew can
+# actually tend early, which nothing else models. Correcting the demand number
+# removes that brake, room_cap stops binding, ANIMAL_TOTAL_CAP's 14 becomes the
+# gate from day 0, and the agent over-expands into a herd it cannot feed or
+# tend -- the same failure as raising that cap to 18 (3/16, -4,143).
+#
+# So the binding early constraint is labour and feed, not market absorbency.
+# Anything built on this model needs that constraint modelled first.
+SHOP_UNLOCK_MODEL = False
+
 # Which crop takes acreage the explicit targets do not claim. See crop_targets.
 # Backfilling wheat instead looked like the one lever that closes both tile-mix
 # gaps against the field at once, and it loses: 6/16 +1,087 on seeds 220-227,
@@ -418,8 +442,8 @@ def crop_targets(day, owned_count, quadrant_count, prices, pressure, market_inve
     # melon has no shop demand at all -- only the town centre buys it. Cap both
     # by what the market can still take rather than by a fixed tile count, so an
     # opponent dumping into either one shrinks our planting automatically.
-    melon = min(melon, crop_tile_cap("MELON", market_inventory, shops, days_left))
-    strawberry = min(strawberry, crop_tile_cap("STRAWBERRY", market_inventory, shops, days_left))
+    melon = min(melon, crop_tile_cap("MELON", market_inventory, shops, days_left, day))
+    strawberry = min(strawberry, crop_tile_cap("STRAWBERRY", market_inventory, shops, days_left, day))
 
     # Compete for the premium market with the less crowded crop instead of
     # mirroring an opponent's fixed build. Visible near-term supply is more
@@ -527,6 +551,49 @@ def daily_town_demand(shops, product):
     return total
 
 
+# The town keeps growing all season. From kaggriculture.py, on each day
+# boundary: `if next_day % townShopUnlockInterval == 0 and len(shops) < 8:
+# shops.append(rng.choice(sorted(SHOPS)))` -- so the instance count on day d is
+# exactly min(8, d // 3): none before day 3, and the eighth arriving on day 24.
+SHOP_UNLOCK_INTERVAL = 3
+MAX_SHOP_INSTANCES = 8
+
+# A shop that has not unlocked yet is an even draw over the eight types, so its
+# expected daily demand for a product is the mean across them -- 3.75 units of
+# wheat, but only 1.5 of wool, since only YARN_STORE buys wool and it is the
+# whole of that shop's demand.
+EXPECTED_SHOP_DEMAND = {
+    product: sum(
+        (12.0 if len(products) == 1 else 6.0) if product in products else 0.0
+        for products in SHOPS.values()
+    ) / len(SHOPS)
+    for product in ["WHEAT", "CARROT", "TOMATO", "STRAWBERRY", "MELON",
+                    "EGG", "MILK", "WOOL", "FERTILIZER"]
+}
+
+
+def expected_town_demand(shops, product, day, days_left):
+    """Units of `product` the town will take between now and the end of `days_left`.
+
+    Counting today's shops for every remaining day is worst exactly where it
+    matters most. On day 0 the town has no shops at all, so today's rate is just
+    the town centre's single unit, and multiplying that by the season says the
+    market can absorb almost nothing -- which is what caps the opening herd,
+    through room_cap in animal_targets. By day 24 the same formula is instead
+    slightly optimistic, since no further shops arrive. A flat multiplier cannot
+    fix both ends: measured on seeds 270-289, 2.0 gave 13/16 then 10/20 with both
+    neighbours losing.
+    """
+    present = len(shops or [])
+    today = daily_town_demand(shops, product)
+    per_new = EXPECTED_SHOP_DEMAND.get(product, 0.0)
+    total = 0.0
+    for future_day in range(day + 1, day + 1 + int(days_left)):
+        unlocked = min(MAX_SHOP_INSTANCES, future_day // SHOP_UNLOCK_INTERVAL)
+        total += today + max(0, unlocked - present) * per_new
+    return total
+
+
 CROP_CYCLE = {
     "WHEAT": (5.0, 4.5),
     "CARROT": (4.0, 3.0),
@@ -536,28 +603,25 @@ CROP_CYCLE = {
 }
 
 
-def crop_tile_cap(crop, market_inventory, shops, days_left):
+def crop_tile_cap(crop, market_inventory, shops, days_left, day=None):
     """Tiles of `crop` whose output the market can still absorb."""
     cycle_days, units_per_cycle = CROP_CYCLE[crop]
     cycles = max(1.0, days_left / cycle_days)
     per_tile = units_per_cycle * cycles
     # Claim the contested demand rather than politely splitting it -- getting
     # there first is what decides these markets.
-    absorbable = absorbable_units(crop, market_inventory, shops, days_left)
+    absorbable = absorbable_units(crop, market_inventory, shops, days_left, day)
     return int(max(0.0, absorbable) / max(1.0, per_tile))
 
 
-def absorbable_units(product, market_inventory, shops, days_left):
+def absorbable_units(product, market_inventory, shops, days_left, day=None):
     """Units of `product` we can still sell before the price collapses."""
     inventory = market_inventory.get(product, MARKET_I0)
     headroom = MARKET_I0 + GLUT_ALLOWANCE.get(product, 200) - inventory
-    # More shops unlock every 3 days, so today's demand badly understates the
-    # season: a game opens with about one shop and finishes with about ten, and
-    # measuring the rest of the season against today's count is worst exactly
-    # when it matters most, on day 0. This is what actually caps the opening
-    # herd -- room_cap in animal_targets, not ANIMAL_TOTAL_CAP, which is why
-    # raising that cap from 7 to 10 changed nothing.
-    future_demand = daily_town_demand(shops, product) * days_left * FUTURE_DEMAND_SCALE
+    if SHOP_UNLOCK_MODEL and day is not None:
+        future_demand = expected_town_demand(shops, product, day, days_left)
+    else:
+        future_demand = daily_town_demand(shops, product) * days_left * FUTURE_DEMAND_SCALE
     return headroom + future_demand
 
 
@@ -597,7 +661,7 @@ def animal_targets(day, quadrant_count, prices=None, market_signals=None, market
         # occupies is worth roughly what a marginal action earns elsewhere.
         margin = rate * price - wheat_price - 3.0 * MARGINAL_ACTION_VALUE
         producing_days = max(1.0, days_left - ANIMAL_FIRST_YIELD[animal])
-        absorbable = absorbable_units(product, market_inventory, shops, days_left)
+        absorbable = absorbable_units(product, market_inventory, shops, days_left, day)
         # Demand is shared with the opponent, so claim a little over half.
         room_cap = int(max(0.0, absorbable) * 0.6 / max(1.0, rate * producing_days))
         if margin <= 0 or room_cap <= 0:

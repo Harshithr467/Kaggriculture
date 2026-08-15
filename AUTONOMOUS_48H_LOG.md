@@ -245,3 +245,63 @@ want opposite corrections. Needs `townShopUnlockInterval = 3` modelled: expected
 shops remaining, integrated over `days_left`, instead of today's count × 1.2.
 
 ---
+
+## Checkpoint 1 — model the shop-unlock schedule
+
+**Hypothesis.** `absorbable_units` estimates the entire remaining season's town
+demand from *today's* shop count, so on day 0 — when the town has no shops at
+all — it concludes the market can absorb almost nothing. That caps `room_cap` in
+`animal_targets` at about four cows and one sheep, which is the real gate on the
+opening herd, and is why raising `ANIMAL_TOTAL_CAP[1]` from 7 to 10 measured
+byte-identically.
+
+**Evidence.** From `kaggriculture.py`: shops unlock on every day divisible by 3
+up to a cap of 8, so the count on day *d* is exactly `min(8, d // 3)`. Verified
+against real replays: **120 of 120 day-observations match.** The resulting
+correction is 4.8× at day 0 and 2.7× at day 26 — the day-dependent shape that
+explains why the flat `FUTURE_DEMAND_SCALE` sweep failed at both ends.
+
+**Predicted effect.** Early `room_cap` rises, opening herd grows, day-10 cash
+rises toward the 5,825 the top decile holds.
+
+**Expected impact.** +3,000–8,000/game if the opening herd was the constraint.
+
+**Instrumentation.** `expected_town_demand` integrates expected shop count over
+remaining days; `EXPECTED_SHOP_DEMAND` is derived from `SHOPS` and independently
+reproduces the known fact that melon has zero shop demand.
+
+**Result: REVERT.** Pool, seeds 310–317:
+
+| | win rate | Δ | our score | Δ |
+|---|---|---|---|---|
+| False (control) | 70.3% | +0.0 | 89,309 | +0 |
+| True | 51.6% | **−18.8** | 81,452 | **−7,857** |
+
+Loses against HEAD and `a49c8d3` individually, not just pooled.
+
+**Why a verifiably correct model made the agent worse — the finding of this
+checkpoint.** `absorbable_units` is not consumed as a forecast, it is consumed
+as a **throttle**: it caps the herd via `room_cap` and acreage via
+`crop_tile_cap`. The under-estimate was *load-bearing*. It stood in for a limit
+on what the crew can tend and feed early, which nothing else in the agent
+models. Correcting the demand figure removes the brake, `room_cap` stops
+binding, `ANIMAL_TOTAL_CAP`'s 14 becomes the day-0 gate, and the agent expands
+into a herd it cannot service — the same failure as raising that cap to 18
+(3/16, −4,143).
+
+**So the binding early constraint is labour and feed, not market absorbency.**
+That reframes the day-10 cash gap: we are not poor because we mis-estimate
+demand, we are poor because the opening cannot service more animals, and the
+field's stronger agents must be solving the labour side, not the demand side.
+
+Code kept at `False`, an exact no-op control, so the next hypothesis can build
+on the model without re-deriving it.
+
+**Next investigation** — model early tending capacity explicitly: hands
+available × turns, minus travel, against the ~3 actions per animal per day that
+`ANIMAL_TOTAL_CAP`'s comment already prices. If that constraint is made real,
+the accurate demand model may then be safe to enable, and the two together are
+the first candidate this session with a mechanism behind both halves. Test the
+labour cap **alone** first, with `SHOP_UNLOCK_MODEL` still False.
+
+---
