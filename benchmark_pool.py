@@ -86,15 +86,33 @@ def _get_agent(ref):
     return module
 
 
+def apply_override(module, path, value):
+    """Set `path` on `module`. Dotted paths address dict entries: ANIMAL_MARGIN_BIAS.SHEEP."""
+    name, _, key = path.partition(".")
+    if not hasattr(module, name):
+        raise SystemExit(f"agent has no constant {name!r}")
+    if not key:
+        setattr(module, name, value)
+        return
+    holder = getattr(module, name)
+    if not isinstance(holder, dict):
+        raise SystemExit(f"{name!r} is not a dict, cannot set {path!r}")
+    # Copy before mutating: the module object is cached and shared between jobs,
+    # so mutating in place would leak this candidate's value into the next one.
+    updated = dict(holder)
+    updated[type(next(iter(holder), key))(key) if holder else key] = value
+    setattr(module, name, updated)
+
+
 def _run_one(job):
     label, cand_ref, override, opp_ref, seed, seat = job
     from benchmark_ab import play
     cand = _get_agent(cand_ref)
     if override:
-        name, value = override
-        if not hasattr(cand, name):
-            raise SystemExit(f"{cand_ref or 'working tree'} has no constant {name!r}")
-        setattr(cand, name, value)
+        # Either a single (name, value) pair or a tuple of (path, value) pairs.
+        pairs = override if isinstance(override[0], (tuple, list)) else [override]
+        for path, value in pairs:
+            apply_override(cand, path, value)
     opp = _get_agent(opp_ref)
     if opp is cand:
         raise SystemExit(
