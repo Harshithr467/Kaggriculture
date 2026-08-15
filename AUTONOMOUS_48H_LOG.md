@@ -85,6 +85,37 @@ produced 11/24 and −1,424 under self-play.
 
 ---
 
+## Submission decision, 2026-08-15 — matched-episode comparison
+
+Waiting for 55514059 to reach 120 episodes would have taken ~39 hours: the rate
+collapsed from one episode every 4 minutes at launch to one every ~35 minutes.
+Matching on episode count answers the same question immediately.
+
+| | first 53 episodes | win rate | our score | margin |
+|---|---|---|---|---|
+| 55414416 | 53 | 52.8% | 85,768 | +4,466 |
+| 55514059 | 53 | 50.9% | 85,069 | +3,234 |
+
+**A one-game difference.** The two agents are indistinguishable live, so the
+856.0 against 817.3 gap is episode count and opponent draw rather than agent
+quality. The previous locally-validated change (14/20, +4,405 local) produced
+no measurable live effect in either direction — which is the second time local
+validation has failed to predict a live movement, and worth remembering before
+reading anything into the next score.
+
+Submitted the CMA-ES triple anyway, as **55536047**, because: the evidence
+behind it is the strongest in the project (p=0.013 across two untouched holdout
+sets, positive against all four pool opponents); the downside I was protecting
+against turns out not to exist; six weeks remain, so retiring an older
+submission is cheap now and expensive later; and waiting 39 hours would buy an
+answer the matched comparison has already given.
+
+Note for later: Kaggle keeps only **two** submissions active, so each submit
+retires one. 55397388 (892.0) was retired by 55514059 and stopped playing on
+2026-08-14.
+
+---
+
 ## Checkpoint 0 — 2026-08-14, session start
 
 **Current best**
