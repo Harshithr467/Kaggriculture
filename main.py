@@ -491,6 +491,25 @@ def crop_targets(day, owned_count, quadrant_count, prices, pressure, market_inve
 
 
 DAILY_ANIMAL_YIELD = {"GOOSE": 2.0, "COW": 1.5, "SHEEP": 4.0 / 3.0}
+
+# Thumb on the scale when animal_targets ranks animals by margin.
+#
+# Live replays finish with 10.5 cows to 4.9 sheep even though sheep price out
+# ahead on margin (158 against 131 at base prices). The reason is that wool's
+# room_cap is far tighter -- only YARN_STORE buys wool, so absorbable_units
+# gives it much less headroom -- and the ranking sorts by margin but is then
+# capped by headroom, so cows win on volume regardless of being worth less each.
+# The split was a consequence of demand headroom rather than a decision.
+#
+# Measured against the four-opponent pool, both seed sets, both metrics, and
+# improving against every opponent rather than one column:
+#     seeds 320-327   1.3  +7.8pp  +1,713        (0.8 on COW instead: +4.7pp)
+#     seeds 330-337   1.3 +12.5pp  +3,726    1.7 +17.2pp  +5,038
+#     pooled          1.3  94/128 = 73.4% against the control's 63.3%
+# Shipping the value confirmed on two sets. The curve had not turned over at
+# 1.7, so the optimum is probably higher -- that is the next sweep, not a
+# reason to ship an unconfirmed number.
+ANIMAL_MARGIN_BIAS = {"GOOSE": 1.0, "COW": 1.0, "SHEEP": 1.3}
 ANIMAL_FIRST_YIELD = {"GOOSE": 4, "COW": 8, "SHEEP": 6}
 # Latest day a purchase still repays its cost before the season ends.
 LAST_USEFUL_ANIMAL_DAY = {"GOOSE": 23, "COW": 18, "SHEEP": 20}
@@ -666,7 +685,8 @@ def animal_targets(day, quadrant_count, prices=None, market_signals=None, market
         room_cap = int(max(0.0, absorbable) * 0.6 / max(1.0, rate * producing_days))
         if margin <= 0 or room_cap <= 0:
             continue
-        ranked.append((margin, animal, min(room_cap, total_cap)))
+        ranked.append((margin * ANIMAL_MARGIN_BIAS.get(animal, 1.0), animal,
+                       min(room_cap, total_cap)))
 
     ranked.sort(reverse=True)
     result = {"GOOSE": 0, "COW": 0, "SHEEP": 0}
