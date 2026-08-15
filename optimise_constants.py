@@ -15,6 +15,33 @@ CMA-ES, implemented here rather than pulled in, because the search is small
 (6-8 noisy continuous dimensions) and the dependency is not worth it.
 
 
+READ THIS BEFORE RUNNING IT: THE FIRST RUN SELECTED PURE NOISE
+
+63 evaluations of 32 games each, six dimensions, search seeds 400-403. The best
+candidate scored 90.6% on the search seeds and 64.6% on held-out seeds 410-415,
+against 66.7% for the shipped constants -- a 26-point collapse, and 2.1 points
+WORSE than changing nothing.
+
+That is not bad luck, it is arithmetic. 32 games puts the standard error on a
+win rate at 8.8 points. Simulating 63 candidates that are all secretly
+identical at 66%, the best-looking one scores 84.5% on average and 90.6% at the
+95th percentile. The observed winner scored 90.6%. Every point of its apparent
+edge is explained by taking the maximum of 63 noisy draws.
+
+To resolve a true 5-point difference you need a standard error near 1.5 points,
+which is about 1,100 games per evaluation -- roughly 35x what this run used. A
+60-evaluation search would then cost days, not hours.
+
+So: do not run this with a small --seeds list. Either give each evaluation
+enough games to see through the noise (10+ seeds, and expect an overnight run),
+or cut the search to two or three dimensions. The honest conclusion from run
+one is that single-constant sweeps confirmed on two independent seed sets --
+the method this project already uses -- extract more signal per CPU-hour than
+joint search does at any budget we can afford.
+
+The holdout is what caught this, so never read a result off the search seeds.
+
+
 THE OBJECTIVE, WHICH IS THE PART THAT MATTERS
 
 The environment's reward is the final bank balance, but the competition ranks
@@ -177,15 +204,47 @@ def main():
         state = json.load(open(STATE, encoding="utf-8"))
 
     if args.validate:
-        vec = state.get("best_vector")
-        if not vec:
-            sys.exit("no saved best; run a search first")
-        print(f"validating on held-out seeds {args.holdout}")
-        for label, v in (("shipped", defaults), ("best", vec)):
+        history = state.get("history") or []
+        if not history:
+            sys.exit("no saved history; run a search first")
+
+        def as_vector(entry):
+            """history entries store overrides by path; SPACE order is what fitness wants."""
+            d = entry["overrides"]
+            return [float(d[path]) for path, _lo, _hi, _ai in SPACE]
+
+        best_soft = max(history, key=lambda h: h["soft"])
+        # Win rate is the real objective -- soft fitness only smooths the search
+        # signal, and at this temperature it still pays a little for margin, so
+        # its argmax is not always the argmax of wins. Break ties on soft.
+        best_win = max(history, key=lambda h: (h["win_rate"], h["soft"]))
+
+        candidates = [("shipped", defaults),
+                      ("best-soft", as_vector(best_soft)),
+                      ("best-win", as_vector(best_win))]
+        print(f"validating on held-out seeds {args.holdout} "
+              f"({len(args.pool) * len(args.holdout) * 2} games each)\n")
+        print(f"  {'candidate':<11}{'soft':>7}{'win%':>8}{'ours':>10}{'theirs':>10}"
+              f"{'search win%':>13}")
+        results = {}
+        for label, v in candidates:
             soft, wr, ours, theirs, ov = fitness(v, args.holdout, args.pool, args.workers)
-            print(f"  {label:<9} soft {soft:.3f}   win {100*wr:5.1f}%   "
-                  f"ours {ours:,.0f}   theirs {theirs:,.0f}")
-            print(f"            {dict(ov)}")
+            results[label] = (soft, wr, dict(ov))
+            searched = ("-" if label == "shipped"
+                        else f"{100 * (best_soft if label == 'best-soft' else best_win)['win_rate']:.1f}")
+            print(f"  {label:<11}{soft:>7.3f}{100*wr:>8.1f}{ours:>10,.0f}{theirs:>10,.0f}"
+                  f"{searched:>13}")
+        print()
+        for label in ("best-soft", "best-win"):
+            print(f"  {label}: {results[label][2]}")
+        base = results["shipped"][1]
+        print()
+        for label in ("best-soft", "best-win"):
+            got, searched = results[label][1], None
+            print(f"  {label:<10} holdout {100*got:5.1f}% vs shipped {100*base:5.1f}%  "
+                  f"-> {100*(got-base):+.1f}pp")
+        print("\nA candidate that beat the search seeds but not the holdout is "
+              "overfitting, not a finding.")
         return
 
     print(f"space:")
