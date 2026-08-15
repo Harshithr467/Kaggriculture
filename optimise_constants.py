@@ -42,27 +42,27 @@ joint search does at any budget we can afford.
 The holdout is what caught this, so never read a result off the search seeds.
 
 
-THE OBJECTIVE, WHICH IS THE PART THAT MATTERS
+THE OBJECTIVE
 
 The environment's reward is the final bank balance, but the competition ranks
-on *wins* -- ELO while it runs, Bradley-Terry after. Those disagree, and not
-subtly: restricting melon sales was worth +772 of our own money and -34 points
-of win rate. Optimising money would have taken that trade and lost the season.
+on *wins* -- ELO while it runs, Bradley-Terry after -- and the two disagree
+sharply. Restricting melon sales was worth +772 of our own money and -34 points
+of win rate; sheep bias past 1.7 keeps earning more while winning less.
+Optimising money takes those trades and loses the season.
 
-Optimising raw win rate instead has its own problem. It is one bit per game
-against a per-game noise of roughly +/-4,000, so a 128-game evaluation resolves
-almost nothing and CMA-ES would chase sampling noise.
+So win rate is the objective, ties counted as half:
 
-So the objective is a soft win:
+    fitness = (wins + 0.5*ties)/games + (0.5/games) * mean tanh(margin / 20000)
 
-    fitness = mean over games of  sigmoid(margin / TEMPERATURE)
+The margin term is bounded in [-1, 1] and scaled to half of one game's worth of
+win rate, so it can only break a tie between candidates with identical records.
+It cannot reorder two candidates that differ by even a single game.
 
-which is monotone in win probability, continuous enough to give the search a
-gradient, and -- because sigmoid saturates -- pays nothing extra for winning a
-game that was already won. That last property is the one we actually need. Live
-replays have us outscoring opponents by +2,176 a game while winning about half:
-we win large and lose narrow, and ELO pays nothing for the size of a win. A
-money objective would reward exactly the pathology we already have.
+Run one used mean sigmoid(margin / 8000) instead, on the theory that a smooth
+objective gives the search a usable gradient. It does, but it is a proxy: its
+argmax there was a 65.6% candidate while a 78.1% one ranked below it. A proxy
+that disagrees with the target on its own top candidates is not worth its
+smoothness.
 """
 import argparse
 import json
@@ -80,18 +80,30 @@ sys.path.insert(0, PROJECT)
 from benchmark_pool import DEFAULT_POOL, run                       # noqa: E402
 
 STATE = os.path.join(PROJECT, "kaggle_episode_data", "optimiser_state.json")
-TEMPERATURE = 8000.0        # margin at which a game counts ~0.73 of a win
 
-# (dotted path, low, high, round-to-int). Chosen for known live impact and for
-# being continuous enough that a search can move them; caps that must stay
-# integral are rounded. Keep this list short -- each evaluation is ~128 games.
+# Margin only ever breaks a tie. With `games` per evaluation the win rate moves
+# in steps of 1/games, so keeping the margin term strictly under that step makes
+# it arithmetically impossible for a lower win rate to outrank a higher one --
+# which is the property run one's sigmoid objective did not have, and why its
+# argmax was a 65.6% candidate while a 78.1% one sat below it.
+MARGIN_WEIGHT_FRACTION = 0.5      # of one win, at most
+MARGIN_SCALE = 20000.0            # tanh scale, so the term is bounded in [-1, 1]
+
+# Seeds the search may draw from, and seeds it must never see. Generations draw
+# a fresh slice of the bank so no candidate can overfit a fixed set -- run one
+# reused four seeds for all 63 evaluations and its winner collapsed 26 points on
+# the holdout.
+SEED_BANK = list(range(400, 460))
+HOLDOUT_SEEDS = list(range(500, 530))
+
+# Three dimensions, not six: at the games-per-evaluation we can afford, every
+# extra dimension costs resolution we do not have. These three have the largest
+# measured behavioural effect, and run one pushed MARGINAL_ACTION_VALUE hard
+# against its upper bound, which is worth resolving.
 SPACE = [
     ("ANIMAL_MARGIN_BIAS.SHEEP",  0.8,  3.5, False),
-    ("ANIMAL_MARGIN_BIAS.COW",    0.5,  1.6, False),
+    ("MARGINAL_ACTION_VALUE",    14.0, 60.0, False),
     ("TRAVEL_DIVISOR",            6.0, 22.0, False),
-    ("MARGINAL_ACTION_VALUE",    14.0, 45.0, False),
-    ("ANIMAL_TOTAL_CAP.3",        9.0, 17.0, True),
-    ("GLUT_ALLOWANCE.MELON",     80.0, 260.0, True),
 ]
 
 
@@ -103,18 +115,60 @@ def to_overrides(vector):
     return tuple(out)
 
 
-def fitness(vector, seeds, pool, workers):
-    """Soft win rate in [0, 1], plus the plain numbers for reporting."""
+def generation_seeds(gen, count):
+    """A fresh slice of the bank per generation; every candidate in a generation
+    shares it, so candidates are compared on identical games (common random
+    numbers) while the search as a whole cannot memorise one seed set."""
+    start = (gen * count) % len(SEED_BANK)
+    doubled = SEED_BANK + SEED_BANK
+    return doubled[start:start + count]
+
+
+def evaluate_candidate(vector, seeds, pool, workers):
+    """Head-to-head record for one candidate. Win rate is the objective."""
     overrides = to_overrides(vector)
     rows = run([("cand", None, overrides)], seeds, pool, workers)
-    soft, wins, ours, theirs = [], 0, [], []
-    for _label, _opp, _seed, _seat, mine, opp in rows:
-        soft.append(1.0 / (1.0 + math.exp(-(mine - opp) / TEMPERATURE)))
-        wins += mine > opp
+
+    wins = losses = ties = 0
+    margins, ours, theirs = [], [], []
+    per_opponent = {}
+    per_seed = {}
+    for _label, opp_ref, seed, seat, mine, opp in rows:
+        d = mine - opp
+        if d > 0:
+            wins += 1
+        elif d < 0:
+            losses += 1
+        else:
+            ties += 1
+        margins.append(d)
         ours.append(mine)
         theirs.append(opp)
-    return (statistics.mean(soft), wins / len(rows),
-            statistics.mean(ours), statistics.mean(theirs), overrides)
+        b = per_opponent.setdefault(opp_ref, [0, 0])
+        b[0] += (d > 0) + 0.5 * (d == 0)
+        b[1] += 1
+        per_seed.setdefault(str(seed), []).append(round(d))
+
+    n = len(rows)
+    win_rate = (wins + 0.5 * ties) / n
+    norm_margin = statistics.mean(math.tanh(m / MARGIN_SCALE) for m in margins)
+    # Bounded strictly below one game's worth of win rate: a tiebreaker, never
+    # a thumb heavy enough to reorder two candidates with different records.
+    fitness_value = win_rate + (MARGIN_WEIGHT_FRACTION / n) * norm_margin
+
+    return {
+        "overrides": dict(overrides),
+        "fitness": fitness_value,
+        "win_rate": win_rate,
+        "games": n, "wins": wins, "losses": losses, "ties": ties,
+        "ours": statistics.mean(ours), "theirs": statistics.mean(theirs),
+        "mean_margin": statistics.mean(margins),
+        "median_margin": statistics.median(margins),
+        "norm_margin": norm_margin,
+        "win_rate_by_opponent": {k: round(v[0] / v[1], 3) for k, v in per_opponent.items()},
+        "margin_by_seed": per_seed,
+        "seeds": list(seeds),
+    }
 
 
 def cma_es(x0, sigma0, budget, evaluate, log):
@@ -150,13 +204,13 @@ def cma_es(x0, sigma0, budget, evaluate, log):
         for _ in range(lam):
             z = np.random.randn(n)
             x = xmean + sigma * (B @ (D * z))
-            score = evaluate(x)
+            score = evaluate(x, gen)
             used += 1
             offspring.append((score, x, z))
             if score > best[0]:
                 best = (score, x.copy())
         offspring.sort(key=lambda t: -t[0])
-        log(gen, used, offspring, best, sigma)
+        log(gen, used, offspring, best, sigma, xmean)
 
         xold = xmean.copy()
         xmean = sum(w * o[1] for w, o in zip(weights, offspring[:mu]))
@@ -180,123 +234,131 @@ def cma_es(x0, sigma0, budget, evaluate, log):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--budget", type=int, default=40, help="evaluations (each ~128 games)")
-    ap.add_argument("--seeds", nargs="*", type=int, default=[400, 401, 402, 403])
-    ap.add_argument("--holdout", nargs="*", type=int, default=[410, 411, 412, 413, 414, 415])
+    ap.add_argument("--budget", type=int, default=35, help="evaluations")
+    ap.add_argument("--seeds-per-eval", type=int, default=10)
+    ap.add_argument("--holdout", nargs="*", type=int, default=HOLDOUT_SEEDS[:12])
     ap.add_argument("--pool", nargs="*", default=DEFAULT_POOL)
     ap.add_argument("--workers", type=int, default=min(16, os.cpu_count() or 4))
-    ap.add_argument("--resume", action="store_true")
-    ap.add_argument("--validate", default=None, help="'best' to re-check the saved best")
+    ap.add_argument("--validate", action="store_true",
+                    help="stage-2 check of the search leader on held-out seeds")
+    ap.add_argument("--promote", action="store_true",
+                    help="stage-3 check on further holdout seeds, before shipping")
     args = ap.parse_args()
 
     import main as agent
     defaults = []
-    for path, lo, hi, _as_int in SPACE:
+    for path, _lo, _hi, _ai in SPACE:
         name, _, key = path.partition(".")
         value = getattr(agent, name)
         if key:
-            holder = value
-            value = holder.get(type(next(iter(holder)))(key)) if holder else None
+            value = value[type(next(iter(value)))(key)]
         defaults.append(float(value))
 
-    state = {}
-    if (args.resume or args.validate) and os.path.exists(STATE):
-        state = json.load(open(STATE, encoding="utf-8"))
+    state = json.load(open(STATE, encoding="utf-8")) if os.path.exists(STATE) else {}
+    history = [h for h in state.get("history", []) if "win_rate" in h and "fitness" in h]
 
-    if args.validate:
-        history = state.get("history") or []
+    if args.validate or args.promote:
         if not history:
-            sys.exit("no saved history; run a search first")
-
-        def as_vector(entry):
-            """history entries store overrides by path; SPACE order is what fitness wants."""
-            d = entry["overrides"]
-            return [float(d[path]) for path, _lo, _hi, _ai in SPACE]
-
-        best_soft = max(history, key=lambda h: h["soft"])
-        # Win rate is the real objective -- soft fitness only smooths the search
-        # signal, and at this temperature it still pays a little for margin, so
-        # its argmax is not always the argmax of wins. Break ties on soft.
-        best_win = max(history, key=lambda h: (h["win_rate"], h["soft"]))
-
-        candidates = [("shipped", defaults),
-                      ("best-soft", as_vector(best_soft)),
-                      ("best-win", as_vector(best_win))]
-        print(f"validating on held-out seeds {args.holdout} "
-              f"({len(args.pool) * len(args.holdout) * 2} games each)\n")
-        print(f"  {'candidate':<11}{'soft':>7}{'win%':>8}{'ours':>10}{'theirs':>10}"
-              f"{'search win%':>13}")
-        results = {}
-        for label, v in candidates:
-            soft, wr, ours, theirs, ov = fitness(v, args.holdout, args.pool, args.workers)
-            results[label] = (soft, wr, dict(ov))
-            searched = ("-" if label == "shipped"
-                        else f"{100 * (best_soft if label == 'best-soft' else best_win)['win_rate']:.1f}")
-            print(f"  {label:<11}{soft:>7.3f}{100*wr:>8.1f}{ours:>10,.0f}{theirs:>10,.0f}"
-                  f"{searched:>13}")
-        print()
-        for label in ("best-soft", "best-win"):
-            print(f"  {label}: {results[label][2]}")
-        base = results["shipped"][1]
-        print()
-        for label in ("best-soft", "best-win"):
-            got, searched = results[label][1], None
-            print(f"  {label:<10} holdout {100*got:5.1f}% vs shipped {100*base:5.1f}%  "
-                  f"-> {100*(got-base):+.1f}pp")
-        print("\nA candidate that beat the search seeds but not the holdout is "
-              "overfitting, not a finding.")
+            sys.exit("no usable history; run a search first")
+        seeds = args.holdout if args.validate else HOLDOUT_SEEDS[12:24]
+        stage = "stage-2 validation" if args.validate else "stage-3 promotion"
+        best = max(history, key=lambda h: (h["win_rate"], h["fitness"]))
+        vec = [float(best["overrides"][p]) for p, _l, _h, _a in SPACE]
+        print(stage + ": seeds " + str(seeds))
+        print("  " + str(len(args.pool) * len(seeds) * 2) + " games per candidate\n")
+        out = {}
+        for label, v in (("champion", defaults), ("candidate", vec)):
+            r = evaluate_candidate(v, seeds, args.pool, args.workers)
+            out[label] = r
+            print("  %-10s win %5.1f%%  (%dW-%dL-%dT)  ours %8s  theirs %8s  med margin %+8s"
+                  % (label, 100 * r["win_rate"], r["wins"], r["losses"], r["ties"],
+                     format(r["ours"], ",.0f"), format(r["theirs"], ",.0f"),
+                     format(r["median_margin"], ",.0f")))
+            print("             by opponent " + str(r["win_rate_by_opponent"]))
+        print("\n  candidate " + str(best["overrides"]))
+        d = out["candidate"]["win_rate"] - out["champion"]["win_rate"]
+        n = out["candidate"]["games"]
+        se = math.sqrt(0.5 / n)
+        print("\n  search win rate was %.1f%%; holdout %.1f%% vs champion %.1f%%  -> %+.1fpp"
+              % (100 * best["win_rate"], 100 * out["candidate"]["win_rate"],
+                 100 * out["champion"]["win_rate"], 100 * d))
+        verdict = "inside noise" if abs(d) < 2 * se else "outside 2 SE"
+        print("  standard error on that difference is about %.1fpp, so this is %s."
+              % (100 * se, verdict))
+        state["last_" + ("validation" if args.validate else "promotion")] = {
+            "champion": out["champion"], "candidate": out["candidate"]}
+        json.dump(state, open(STATE, "w", encoding="utf-8"), indent=1)
         return
 
-    print(f"space:")
+    games = len(args.pool) * args.seeds_per_eval * 2
+    print("space:")
     for (path, lo, hi, _), d in zip(SPACE, defaults):
-        print(f"  {path:<28}{d:>8.2f}   in [{lo}, {hi}]")
-    print(f"\nbudget {args.budget} evaluations x {len(args.pool)*len(args.seeds)*2} games")
-    print(f"objective: mean sigmoid(margin / {TEMPERATURE:.0f}) -- soft win rate\n")
+        print("  %-28s%8.2f   in [%s, %s]" % (path, d, lo, hi))
+    print("\nbudget %d evaluations x %d games = %d games"
+          % (args.budget, games, args.budget * games))
+    print("objective: win rate (ties 0.5); margin can only break exact ties")
+    print("seeds rotate per generation from a bank of %d; holdout %d-%d never searched"
+          % (len(SEED_BANK), HOLDOUT_SEEDS[0], HOLDOUT_SEEDS[-1]))
+    se = math.sqrt(0.25 / games)
+    print("standard error per evaluation ~%.1fpp; with %d candidates expect the best"
+          % (100 * se, args.budget))
+    print("to look ~%.0fpp better than it is, so the search output is a shortlist."
+          % (100 * 2.2 * se))
+    print("Stage 2 (--validate) and stage 3 (--promote) decide.\n")
 
-    history = state.get("history", []) if args.resume else []
-    seen = {}
-
-    def evaluate(vec):
-        key = json.dumps([round(float(x), 4) for x in vec])
-        if key in seen:
-            return seen[key]
-        soft, wr, ours, theirs, ov = fitness(vec, args.seeds, args.pool, args.workers)
-        seen[key] = soft
-        history.append({"overrides": dict(ov), "soft": soft, "win_rate": wr,
-                        "ours": ours, "theirs": theirs})
-        json.dump({"history": history,
-                   "best_vector": max(history, key=lambda h: h["soft"])["overrides"]},
-                  open(STATE, "w", encoding="utf-8"), indent=1)
-        return soft
-
-    def log(gen, used, offspring, best, sigma):
-        top = history[-1] if history else {}
-        print(f"gen {gen:>3}  evals {used:>3}/{args.budget}  "
-              f"best soft {best[0]:.3f}  sigma {sigma:.3f}", flush=True)
-        for h in sorted(history[-len(offspring):], key=lambda h: -h["soft"])[:2]:
-            print(f"        soft {h['soft']:.3f}  win {100*h['win_rate']:5.1f}%  "
-                  f"{h['overrides']}", flush=True)
-
-    # Search in normalised units so every dimension moves at a comparable rate.
+    generations = []
     scale = np.array([(hi - lo) for _, lo, hi, _ in SPACE], dtype=float)
     lo_v = np.array([lo for _, lo, _, _ in SPACE], dtype=float)
     x0 = (np.array(defaults) - lo_v) / scale
 
-    def evaluate_norm(xn):
-        return evaluate(lo_v + np.clip(xn, 0.0, 1.0) * scale)
+    def evaluate(xn, gen):
+        vec = lo_v + np.clip(xn, 0.0, 1.0) * scale
+        seeds = generation_seeds(gen, args.seeds_per_eval)
+        r = evaluate_candidate(vec, seeds, args.pool, args.workers)
+        r["generation"] = gen
+        history.append(r)
+        json.dump({"history": history, "generations": generations},
+                  open(STATE, "w", encoding="utf-8"), indent=1)
+        return r["fitness"]
+
+    def log(gen, used, offspring, best, sigma, xmean):
+        rows = sorted([h for h in history if h.get("generation") == gen],
+                      key=lambda h: -h["fitness"])
+        generations.append({
+            "generation": gen, "evals_used": used, "sigma": float(sigma),
+            "mean": dict(to_overrides(lo_v + np.clip(xmean, 0, 1) * scale)),
+            "best_fitness": float(best[0]),
+            "gen_best_win_rate": rows[0]["win_rate"] if rows else None,
+            "gen_median_win_rate": (statistics.median(h["win_rate"] for h in rows)
+                                    if rows else None),
+            "seeds": rows[0]["seeds"] if rows else [],
+        })
+        print("gen %2d  evals %3d/%d  sigma %.3f  seeds %d-%d"
+              % (gen, used, args.budget, sigma,
+                 rows[0]["seeds"][0], rows[0]["seeds"][-1]), flush=True)
+        for h in rows[:2]:
+            print("       win %5.1f%%  (%dW-%dL)  med margin %+8s  %s"
+                  % (100 * h["win_rate"], h["wins"], h["losses"],
+                     format(h["median_margin"], ",.0f"), h["overrides"]), flush=True)
+
+    lam = 4 + int(3 * math.log(len(SPACE)))
+    if args.budget < lam:
+        sys.exit(f"--budget {args.budget} is below the population size {lam} for "
+                 f"{len(SPACE)} dimensions, so no generation can complete. "
+                 f"Use --budget {lam} or more (a multiple of {lam} is tidiest).")
 
     random.seed(0)
     np.random.seed(0)
-    best_score, best_norm = cma_es(x0, 0.25, args.budget, evaluate_norm, log)
+    cma_es(x0, 0.30, args.budget, evaluate, log)
 
-    best = lo_v + np.clip(best_norm, 0.0, 1.0) * scale
-    print(f"\nbest soft fitness {best_score:.3f}")
-    print(f"  {dict(to_overrides(best))}")
-    json.dump({"history": history, "best_vector": list(best)},
+    if not history:
+        sys.exit("no evaluations completed")
+    best = max(history, key=lambda h: (h["win_rate"], h["fitness"]))
+    print("\nsearch shortlist leader: win %.1f%%  %s"
+          % (100 * best["win_rate"], best["overrides"]))
+    json.dump({"history": history, "generations": generations},
               open(STATE, "w", encoding="utf-8"), indent=1)
-    print(f"\nstate -> {os.path.relpath(STATE, PROJECT)}")
-    print("Now run --validate best on held-out seeds. The search set is tuned on; "
-          "a gain that does not survive the holdout is overfitting, not a finding.")
+    print("\nThis is a shortlist, not a result. Run --validate, then --promote.")
 
 
 if __name__ == "__main__":
