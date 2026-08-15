@@ -1,5 +1,24 @@
 # Autonomous 48-hour optimisation log
 
+> **Where this runs.** From 2026-08-14 the 4-hourly checkpoints execute in an
+> isolated git worktree at `C:\Users\viloh\kaggriculture-auto` on branch
+> `auto/48h-optimisation`, **not** in the interactive tree. The two shared one
+> working directory for the first few checkpoints and collided: a checkpoint
+> fired mid-session, found uncommitted work in the shared tree and committed it
+> under its own message (`4b89857`). Benign that time — its analysis was correct
+> and independently matched — but the same race could have committed half-edited
+> code or clobbered `patterns.csv`.
+>
+> `.venv` and `kaggle_episode_data/replays` are directory junctions to the
+> shared copies, so the interpreter and the multi-GB replay cache are not
+> duplicated. Each checkpoint starts with `git merge --ff-only
+> codex/rank-1-strategy` to pick up interactive work, and never force-merges.
+>
+> **Commits made by the schedule land on `auto/48h-optimisation` and are not on
+> your branch until you merge them deliberately.** To inspect:
+> `git log codex/rank-1-strategy..auto/48h-optimisation`. To remove the worktree
+> when the run ends: `git worktree remove C:/Users/viloh/kaggriculture-auto`.
+
 Started **2026-08-14**, ends **2026-08-16**. Checkpoints every 4 hours; the
 schedule cancels itself at the end.
 
