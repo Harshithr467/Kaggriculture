@@ -180,7 +180,7 @@ SPAWN_QUADRANTS = ["NW", "NE", "SW", "SE"]
 # turns) or tile layout -- was where the walking went. Swept over three
 # independent seed sets: everything from 4 upward beats 0.85 decisively and the
 # curve is flat past 12, which cuts movement from 58% to 47% of all actions.
-TRAVEL_DIVISOR = 12.0
+TRAVEL_DIVISOR = 16.6979
 OUT_OF_ZONE_FACTOR = 0.4
 STICKY_FACTOR = 1.55
 PRESSURE_SCALE = {"WHEAT": 12.0, "CARROT": 10.0, "TOMATO": 8.0, "STRAWBERRY": 6.0, "MELON": 5.0}
@@ -506,10 +506,14 @@ DAILY_ANIMAL_YIELD = {"GOOSE": 2.0, "COW": 1.5, "SHEEP": 4.0 / 3.0}
 #     seeds 320-327   1.3  +7.8pp  +1,713        (0.8 on COW instead: +4.7pp)
 #     seeds 330-337   1.3 +12.5pp  +3,726    1.7 +17.2pp  +5,038
 #     pooled          1.3  94/128 = 73.4% against the control's 63.3%
-# Shipping the value confirmed on two sets. The curve had not turned over at
-# 1.7, so the optimum is probably higher -- that is the next sweep, not a
-# reason to ship an unconfirmed number.
-ANIMAL_MARGIN_BIAS = {"GOOSE": 1.0, "COW": 1.0, "SHEEP": 1.3}
+# 1.3 was shipped first, confirmed on two seed sets, with the note that the
+# curve had not turned over at 1.7. It had not: the joint CMA-ES search moved
+# it to 2.73, but only alongside MARGINAL_ACTION_VALUE 33.5 and TRAVEL_DIVISOR
+# 16.7. Sweeping sheep alone had found 2.2 and 3.0 *worse* than 1.3 at the old
+# values of those two, so this is a genuine three-way interaction and exactly
+# what one-constant-at-a-time sweeping cannot see. See the note on
+# MARGINAL_ACTION_VALUE for the joint measurement.
+ANIMAL_MARGIN_BIAS = {"GOOSE": 1.0, "COW": 1.0, "SHEEP": 2.7289}
 ANIMAL_FIRST_YIELD = {"GOOSE": 4, "COW": 8, "SHEEP": 6}
 # Latest day a purchase still repays its cost before the season ends.
 LAST_USEFUL_ANIMAL_DAY = {"GOOSE": 23, "COW": 18, "SHEEP": 20}
@@ -538,7 +542,27 @@ ANIMAL_TOTAL_CAP = {1: 14, 2: 14, 3: 14, 4: 15}
 # What one worker-action earns when spent on something else. Used to price the
 # ~3 actions a day each animal consumes, so the herd stops growing at the point
 # where it starts cannibalising the crop schedule.
-MARGINAL_ACTION_VALUE = 28.0
+#
+# This, TRAVEL_DIVISOR and ANIMAL_MARGIN_BIAS.SHEEP were set together by the
+# CMA-ES search in optimise_constants.py, and they only work together. Lowering
+# this value was falsified twice on its own (0/12, both times); raising it was
+# never properly tested. Sheep bias at 2.2 and 3.0 measured *worse* than 1.3
+# while this sat at 28 and the travel divisor at 12. Moving all three at once
+# is what found the combination, which is the whole argument for joint search
+# over one-at-a-time sweeping.
+#
+#     28.0 / 12.0 / 1.3   ->   33.5222 / 16.6979 / 2.7289
+#
+# Validated on seeds the search never touched, in two independent stages of 96
+# games each against the four-opponent pool:
+#     stage 2, seeds 500-511   75.0% against the champion's 63.5%   +11.5pp
+#     stage 3, seeds 512-523   78.1% against the champion's 66.7%   +11.5pp
+#     combined                 76.6% against 65.1%   z = 2.49, p = 0.013
+# Better against every opponent in the pool, though the margin is widest
+# against the older builds (a49c8d3 +25.0pp, f454950 +12.4pp) and narrowest
+# against the agent this replaces (+6.2pp), which is the number to keep in mind
+# before expecting the live score to move by anything like eleven points.
+MARGINAL_ACTION_VALUE = 33.5222
 
 SHOPS = {
     "BAKERY": ["EGG", "WHEAT"],
