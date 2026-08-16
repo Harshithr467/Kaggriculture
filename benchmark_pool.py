@@ -88,6 +88,23 @@ def _restore(module, snap):
         setattr(module, name, dict(value) if isinstance(value, dict) else value)
 
 
+def _load_from_file(path):
+    """Load an agent from a .py file, for opponents that are not our own history.
+
+    The pool was built entirely from our own commits, which is why it ranked our
+    best live agent fourth of five: it measures "beats our past selves", not
+    "beats the field". A public kernel agent is a real opponent and belongs here.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "poolfile_" + os.path.basename(path).replace(".", "_") + f"_{os.getpid()}", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if not hasattr(module, "agent"):
+        raise SystemExit(f"{path} has no agent() entry point")
+    return module
+
+
 def _get_agent(ref):
     """Cache by revision ONLY, never by (revision, override).
 
@@ -107,6 +124,8 @@ def _get_agent(ref):
         return _agents[ref]
     if ref is None:
         import main as module
+    elif ref.endswith(".py") or os.path.sep in ref or "/" in ref:
+        module = _load_from_file(ref)
     else:
         module = _load_from_git(ref)
     _agents[ref] = module
@@ -146,7 +165,11 @@ def _run_one(job):
             apply_override(cand, path, value)
     opp = _get_agent(opp_ref)
     _restore(opp, _pristine_state[opp_ref])
-    if opp is cand:
+    # Only a problem when an override is in play: setting it on a shared module
+    # would apply to both sides. With no override, an agent playing a copy of
+    # itself is a legitimate matchup (a champion measured against the pool it
+    # belongs to).
+    if opp is cand and override:
         raise SystemExit(
             f"candidate and opponent resolve to the same module ({opp_ref}); "
             "the override would apply to both. Use a different --ref."
