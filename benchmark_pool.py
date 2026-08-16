@@ -39,6 +39,7 @@ sys.path.insert(0, PROJECT)
 DEFAULT_POOL = ["HEAD", "a49c8d3", "f454950", "c34629c"]
 
 _agents = {}          # per-process cache: ref -> module
+_pristine_state = {}  # ref -> its constants as loaded, for per-job reset
 
 
 def _load_from_git(ref):
@@ -68,13 +69,39 @@ def _load_from_git(ref):
     return module
 
 
+def _pristine(module):
+    """Snapshot every module-level constant, so a job can start from defaults."""
+    snap = {}
+    for name in dir(module):
+        if not name.isupper() or name.startswith("_"):
+            continue
+        value = getattr(module, name)
+        if isinstance(value, dict):
+            snap[name] = dict(value)
+        elif isinstance(value, (int, float, str, bool, tuple)):
+            snap[name] = value
+    return snap
+
+
+def _restore(module, snap):
+    for name, value in snap.items():
+        setattr(module, name, dict(value) if isinstance(value, dict) else value)
+
+
 def _get_agent(ref):
     """Cache by revision ONLY, never by (revision, override).
 
     `import main` hands back the one module object, so caching a module under
     (ref, override) would leave several cache entries pointing at the same
     object and every candidate would silently run with whichever override was
-    applied last. Overrides are therefore re-applied per game, below.
+    applied last. Overrides are re-applied per game, below.
+
+    The module is also snapshotted on first load, because applying an override
+    is not enough on its own: a job that overrides nothing, or overrides a
+    *different* constant, would otherwise inherit whatever the previous job in
+    this worker process left behind. That silently contaminated the first
+    --check-all scan, whose baseline label carried no override at all and so
+    ran with the accumulated settings of every perturbation before it.
     """
     if ref in _agents:
         return _agents[ref]
@@ -83,6 +110,7 @@ def _get_agent(ref):
     else:
         module = _load_from_git(ref)
     _agents[ref] = module
+    _pristine_state[ref] = _pristine(module)
     return module
 
 
@@ -108,12 +136,16 @@ def _run_one(job):
     label, cand_ref, override, opp_ref, seed, seat = job
     from benchmark_ab import play
     cand = _get_agent(cand_ref)
+    # Always start from the module as loaded. Without this a job inherits every
+    # override applied by earlier jobs in this worker process.
+    _restore(cand, _pristine_state[cand_ref])
     if override:
         # Either a single (name, value) pair or a tuple of (path, value) pairs.
         pairs = override if isinstance(override[0], (tuple, list)) else [override]
         for path, value in pairs:
             apply_override(cand, path, value)
     opp = _get_agent(opp_ref)
+    _restore(opp, _pristine_state[opp_ref])
     if opp is cand:
         raise SystemExit(
             f"candidate and opponent resolve to the same module ({opp_ref}); "

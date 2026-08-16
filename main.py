@@ -3,7 +3,7 @@ import sys
 
 TOTAL_DAYS = 30
 TURNS_PER_DAY = 24
-TRAVEL_COST = 8.0
+TRAVEL_COST = 8.0  # DEAD: defined, never read. Travel is priced by TRAVEL_DIVISOR.
 MAX_MARKET_ORDERS = 10
 PASS_RESPONSE = {"farmer": ["PASS"], "hands": [], "market": []}
 _MEMORY = {}
@@ -187,6 +187,15 @@ PRESSURE_SCALE = {"WHEAT": 12.0, "CARROT": 10.0, "TOMATO": 8.0, "STRAWBERRY": 6.
 GLUT_SENSITIVITY = {"WHEAT": 0.15, "CARROT": 0.30, "TOMATO": 0.55, "STRAWBERRY": 0.95, "MELON": 1.15}
 ENDGAME_DAYS = {"WHEAT": 2, "CARROT": 2, "TOMATO": 4, "STRAWBERRY": 5, "MELON": 6}
 
+# DEAD. reserve_price() below is defined and never called from anywhere, so
+# none of this reaches a decision -- a pool sweep of every entry scaled 0.6x
+# and 1.6x returned byte-identical games across all 64 matches. It is a
+# leftover of the old price-floor policy that sellable_now() replaced, and
+# that function's comment records the reasoning ("Sell as soon as the market
+# can absorb it"), so this is superseded rather than accidentally orphaned.
+# Left in place rather than deleted: removing it by hand took the live
+# opponent_glut_factor() with it, which reduced the agent to its starting
+# money in all eight test games.
 RESERVE_FRAC = {
     "WHEAT": 0.45,
     "CARROT": 0.40,
