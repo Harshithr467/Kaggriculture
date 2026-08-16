@@ -108,6 +108,9 @@ def main():
                     help="constant path, champion value, candidate value")
     ap.add_argument("--champion-ref", default=None,
                     help="git revision for the champion instead of a constant value")
+    ap.add_argument("--candidate-ref", default=None,
+                    help="git revision for the candidate; default is the working tree. "
+                         "Needed to test a past change once the tree has moved on.")
     ap.add_argument("--h1", type=float, default=0.55,
                     help="pair score under H1; 0.55 is a real but modest gain")
     ap.add_argument("--alpha", type=float, default=0.05)
@@ -128,9 +131,12 @@ def main():
     elif args.champion_ref:
         champ_over = cand_over = None
         champ_ref = args.champion_ref
-        what = f"working tree vs {args.champion_ref}"
+        what = f"{args.candidate_ref or 'working tree'} vs {args.champion_ref}"
     else:
         sys.exit("give --sweep PATH CHAMPION CANDIDATE, or --champion-ref REV")
+
+    if args.candidate_ref and args.candidate_ref == args.champion_ref:
+        sys.exit("candidate and champion are the same revision")
 
     low, high = bounds(args.alpha, args.beta)
     per_batch = len(args.pool) * args.batch_seeds * 2
@@ -150,7 +156,7 @@ def main():
         # The candidate is always the working tree; only the champion may come
         # from a git revision. Both sides get the same seeds in the same call,
         # which is what makes the pairing exact.
-        rows = run([("candidate", None, cand_over),
+        rows = run([("candidate", args.candidate_ref, cand_over),
                     ("champion", champ_ref, champ_over)],
                    seeds, args.pool, args.workers)
         scores += pair_batch(rows)
@@ -169,9 +175,21 @@ def main():
             print(f"  {w} pairs to the candidate, {l} to the champion, {d} drawn.")
             return
         if value <= low:
-            print(f"\n  REJECT the candidate. LLR {value:+.3f} crossed {low:+.3f} "
-                  f"after {played} games a side.")
+            # H0 accepted, which is NOT the same as "the candidate is worse".
+            # It means the effect is smaller than H1, and a candidate that won
+            # more pairs than it lost can still land here.
+            if w < l:
+                verdict = "worse than the champion"
+            elif w > l:
+                verdict = "better, but by less than the margin tested"
+            else:
+                verdict = "indistinguishable from the champion"
+            print(f"\n  H0 ACCEPTED: candidate is {verdict}. LLR {value:+.3f} "
+                  f"crossed {low:+.3f} after {played} games a side.")
             print(f"  {w} pairs to the candidate, {l} to the champion, {d} drawn.")
+            if w > l:
+                print(f"  Direction is positive -- it never needed to lose a pair to"
+                      f" land here. Re-run with a lower --h1 to size the effect.")
             return
 
     print(f"\n  INCONCLUSIVE at the {args.max_games}-game cap. "
