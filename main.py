@@ -146,6 +146,36 @@ SEED_RESERVE_FLAT = 450.0
 # flat 450 that superseded reserved_seed_budget() was the better guess.
 SEED_RESERVE_WEIGHT = 0.0
 
+# Tiles committed to tomato, by quadrants owned.
+#
+# The 1.32.7 balance change gave CARROT, TOMATO and EGG a `hinge` scarcity curve
+# with a gain of 8, so their price runs away when the town drains the market and
+# nobody produces. Tomato is the extreme case: 60 at equilibrium, 414 at a
+# shortfall of 450, and 2,520 at 900. Wheat and melon were left alone.
+#
+# Every crop target in this function was fitted before that change, when tomato
+# topped out near its base price. Module-level so it can be re-fitted against
+# the market that now exists.
+TOMATO_TARGETS = {1: 0, 2: 0, 3: 4, 4: 6}
+
+# Stop buying entirely for the last N days: capital spent this late cannot
+# come back as product before the season ends, and only the bank balance
+# scores. Wheat needs 2 days to first yield and 4 to reach full, a cow 8, a
+# quadrant needs a crew to work it. 0 keeps the old behaviour exactly and is
+# the control row.
+# Measured against the pool on two independent seed sets, on the 1.32.7 market:
+#     value    seeds 870-877   seeds 880-887   pooled win rate
+#       0          73.4%           71.9%        72.7%  (control)
+#       3          84.4%           89.1%        86.8%   +14.1pp
+#       5          87.5%           85.9%        86.7%   +14.0pp
+#       7            -             81.2%         +9.4pp
+#       9            -             59.4%        -12.5pp
+# 3 and 5 are tied on win rate; 5 is ahead on our own score on both sets
+# (+2,317 and +2,405 against +1,515 and +1,234), and both metrics agree, so 5
+# ships. The fall-off at 9 is the shape a real optimum has: closing the shop too
+# early strands the season's last productive days.
+NO_BUY_LAST_DAYS = 5
+
 # Which crop takes acreage the explicit targets do not claim. See crop_targets.
 # Backfilling wheat instead looked like the one lever that closes both tile-mix
 # gaps against the field at once, and it loses: 6/16 +1,087 on seeds 220-227,
@@ -447,7 +477,7 @@ def crop_targets(day, owned_count, quadrant_count, prices, pressure, market_inve
     wheat_targets = {1: 6, 2: 8, 3: 10, 4: 12}
     melon_targets = {1: 12, 2: 12, 3: 13, 4: 14}
     strawberry_targets = {1: 0, 2: 20, 3: 40, 4: 44}
-    tomato_targets = {1: 0, 2: 0, 3: 4, 4: 6}
+    tomato_targets = TOMATO_TARGETS
 
     days_left = max(4, TOTAL_DAYS - day - 2)
     wheat = min(crop_slots, wheat_targets.get(quadrant_count, 22))
@@ -1147,6 +1177,8 @@ def build_market_orders(obs, me, private, roles, pressure, market_signals=None):
     money = int(me.get("money", 0))
     orders = []
     cash_floor = operating_cash_floor(day, len(me.get("unlocked_quadrants", [])))
+    # Past this point the season is pure liquidation: sell, do not spend.
+    buying_closed = (TOTAL_DAYS - day) <= NO_BUY_LAST_DAYS
     # Anything the seed plan needs beyond the flat figure already applied below.
     extra_seed_reserve = max(
         0.0,
@@ -1195,7 +1227,8 @@ def build_market_orders(obs, me, private, roles, pressure, market_signals=None):
     wheat_deficit = desired_wheat_buffer(obs, me, private) - total_accessible_items(me, private).get("WHEAT", 0)
     wheat_price = prices.get("WHEAT", 25)
     wheat_budget = max(0, money - planned_spend - 200)
-    buy_amount = min(10, wheat_deficit, wheat_budget // max(1, wheat_price))
+    buy_amount = 0 if buying_closed else min(
+        10, wheat_deficit, wheat_budget // max(1, wheat_price))
     if buy_amount > 0:
         planned_spend += wheat_price * buy_amount
         projected_money -= wheat_price * buy_amount
@@ -1205,7 +1238,7 @@ def build_market_orders(obs, me, private, roles, pressure, market_signals=None):
     # $250 because the town drains it faster than either player produces it,
     # returns that within two days. A quadrant costs up to $4000 and only pays
     # off if we have the animals and hands to work it.
-    if hour <= 2:
+    if hour <= 2 and not buying_closed:
         animal_orders = desired_animal_buys(obs, me, private, roles, market_signals)
         for animal, amount in animal_orders:
             for _ in range(amount):
@@ -1219,13 +1252,13 @@ def build_market_orders(obs, me, private, roles, pressure, market_signals=None):
                 orders.append(["BUY_ANIMAL", animal, 1])
 
     land_cost = next_land_cost(me)
-    if should_buy_land(day, money - planned_spend - extra_seed_reserve,
+    if not buying_closed and should_buy_land(day, money - planned_spend - extra_seed_reserve,
                        land_cost, me, prices, pressure):
         planned_spend += land_cost
         projected_money -= land_cost
         orders.append(["BUY_LAND"])
 
-    budget = max(0, money - planned_spend - cash_floor)
+    budget = 0 if buying_closed else max(0, money - planned_spend - cash_floor)
     for crop, deficit in prioritized_seed_orders(me, roles, seeds, prices, pressure, day):
         if deficit <= 0 or budget < CROPS[crop]["seed_cost"]:
             continue
