@@ -127,6 +127,25 @@ FUTURE_DEMAND_SCALE = 1.2
 # Anything built on this model needs that constraint modelled first.
 SHOP_UNLOCK_MODEL = False
 
+# How much cash to hold back from animals and land so the planting plan can
+# still be funded. The flat figure is what the code used as a guess; the
+# weight scales reserved_seed_budget(), which computes what the plan's seed
+# shortfalls will actually cost. At 0.0 the flat figure is all that applies
+# and behaviour is exactly as before, so 0.0 is a valid control row.
+#
+# reserved_seed_budget() has been dead since it was written -- defined and
+# never called. The gap it was meant to close is measured: we hold $932 on
+# day 10 where the strongest seats hold $5,825, and we buy land on day 3-5
+# and then cannot afford seed.
+SEED_RESERVE_FLAT = 450.0
+#
+# Measured and rejected. Against the pool on seeds 820-827: 0.5 and 1.0 are
+# indistinguishable from the flat figure (67.2% either way), and 1.5 loses
+# 21.9 points of win rate while making us $1,160 richer -- the same trade as
+# melon and sheep bias, where hoarding leaves us wealthier and beaten. The
+# flat 450 that superseded reserved_seed_budget() was the better guess.
+SEED_RESERVE_WEIGHT = 0.0
+
 # Which crop takes acreage the explicit targets do not claim. See crop_targets.
 # Backfilling wheat instead looked like the one lever that closes both tile-mix
 # gaps against the field at once, and it loses: 6/16 +1,087 on seeds 220-227,
@@ -1128,6 +1147,11 @@ def build_market_orders(obs, me, private, roles, pressure, market_signals=None):
     money = int(me.get("money", 0))
     orders = []
     cash_floor = operating_cash_floor(day, len(me.get("unlocked_quadrants", [])))
+    # Anything the seed plan needs beyond the flat figure already applied below.
+    extra_seed_reserve = max(
+        0.0,
+        SEED_RESERVE_WEIGHT * reserved_seed_budget(roles, private) - SEED_RESERVE_FLAT,
+    )
 
     current_load = shed_load(shed)
     fertilizer_reserve = desired_fertilizer_reserve(me, day, prices)
@@ -1188,13 +1212,15 @@ def build_market_orders(obs, me, private, roles, pressure, market_signals=None):
                 cost = ANIMALS[animal]["cost"]
                 # Still leave enough behind to keep the seed plan funded; an
                 # unplanted tile costs more than a delayed animal.
-                if money - planned_spend < cost + cash_floor + 450:
+                if (money - planned_spend
+                        < cost + cash_floor + SEED_RESERVE_FLAT + extra_seed_reserve):
                     break
                 planned_spend += cost
                 orders.append(["BUY_ANIMAL", animal, 1])
 
     land_cost = next_land_cost(me)
-    if should_buy_land(day, money - planned_spend, land_cost, me, prices, pressure):
+    if should_buy_land(day, money - planned_spend - extra_seed_reserve,
+                       land_cost, me, prices, pressure):
         planned_spend += land_cost
         projected_money -= land_cost
         orders.append(["BUY_LAND"])
