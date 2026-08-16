@@ -522,6 +522,17 @@ DAILY_ANIMAL_YIELD = {"GOOSE": 2.0, "COW": 1.5, "SHEEP": 4.0 / 3.0}
 # value the holdouts validated and changing it would ship an unmeasured config,
 # but the credit for the +11.5pp belongs to the other two constants, with this
 # one only needing to sit above the flip point.
+#
+# A sweep of every constant in the file (optimise_constants.py --check-all)
+# found this to be the ONLY dead region in the agent, and it covers all three
+# entries: perturbing COW or GOOSE by +/-40% changes nothing either, because
+# sheep already leads the ranking so cow's weight cannot reorder it, and geese
+# are dropped by the margin <= 0 test before any bias applies. Fifty-one of the
+# other fifty-four constants change the games played.
+#
+# Raising SHEEP from 1.0 to 1.3 was a real behavioural change and was measured
+# as such (94/128 against 81/128, p = 0.08). Everything above roughly 1.6 is
+# the same agent.
 ANIMAL_MARGIN_BIAS = {"GOOSE": 1.0, "COW": 1.0, "SHEEP": 2.7289}
 ANIMAL_FIRST_YIELD = {"GOOSE": 4, "COW": 8, "SHEEP": 6}
 # Latest day a purchase still repays its cost before the season ends.

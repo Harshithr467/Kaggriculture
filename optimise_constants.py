@@ -239,6 +239,102 @@ def cma_es(x0, sigma0, budget, evaluate, log):
     return best
 
 
+# Game facts and structural constants: changing these does not tune the policy,
+# it describes a different game. Excluded from the dead-range probe.
+NOT_TUNABLE = {
+    "TOTAL_DAYS", "TURNS_PER_DAY", "MAX_MARKET_ORDERS", "MARKET_I0", "CROPS",
+    "ANIMALS", "PRODUCT_BASE_PRICE", "SHOPS", "LAND_COSTS", "SEED_PRIORITY",
+    "SPAWN_QUADRANTS", "DAILY_ANIMAL_YIELD", "ANIMAL_FIRST_YIELD", "CROP_CYCLE",
+    "PASS_RESPONSE", "SHOP_UNLOCK_INTERVAL", "MAX_SHOP_INSTANCES",
+    "EXPECTED_SHOP_DEMAND", "ONGOING_INTERVAL",
+}
+
+
+def tunable_entries(agent):
+    """(path, current value) for every numeric policy constant, dicts expanded."""
+    out = []
+    for name in sorted(dir(agent)):
+        if name.startswith("_") or not name.isupper() or name in NOT_TUNABLE:
+            continue
+        value = getattr(agent, name)
+        if isinstance(value, bool):
+            out.append((name, value))
+        elif isinstance(value, (int, float)):
+            out.append((name, value))
+        elif isinstance(value, dict):
+            for key, inner in value.items():
+                if isinstance(inner, (int, float)) and not isinstance(inner, bool):
+                    out.append((f"{name}.{key}", inner))
+    return out
+
+
+def perturbations(path, value):
+    """Two values either side of the current one, chosen to be meaningful."""
+    if isinstance(value, bool):
+        return [not value]
+    if value > 10000:
+        # An allowance this large is "never hold back". Halving it is still
+        # never, so probe with a finite cap that could actually bind.
+        return [300, 2000]
+    lo, hi = value * 0.6, value * 1.6
+    if isinstance(value, int):
+        lo, hi = int(round(lo)), int(round(hi))
+        if lo == value:
+            lo = value - 1
+        if hi == value:
+            hi = value + 1
+        if "DAY" in path:                    # keep day thresholds inside the season
+            lo, hi = max(0, lo), min(29, hi)
+    if abs(hi - value) < 1e-9 and abs(lo - value) < 1e-9:
+        return []
+    return [v for v in (lo, hi) if abs(v - value) > 1e-9]
+
+
+def check_all(pool, seeds, workers):
+    """Which constants does the agent actually respond to, near their current values?"""
+    import main as agent
+    entries = tunable_entries(agent)
+    labels = [("BASE", None, None)]
+    meta = {}
+    for path, value in entries:
+        for variant in perturbations(path, value):
+            label = f"{path}={variant!r}"
+            labels.append((label, None, ((path, variant),)))
+            meta[label] = (path, value, variant)
+
+    games = len(pool) * len(seeds) * 2
+    print(f"probing {len(entries)} constants, {len(labels) - 1} perturbations, "
+          f"{games} games each = {len(labels) * games} games")
+    print("identical scores on identical seeds mean identical games\n")
+    rows = run(labels, seeds, pool, workers)
+
+    by = {}
+    for label, opp, seed, seat, mine, _theirs in rows:
+        by.setdefault(label, {})[(opp, seed, seat)] = mine
+    base = by.get("BASE", {})
+    keys = list(base)
+
+    results = {}
+    for label, (path, value, variant) in meta.items():
+        got = by.get(label, {})
+        differ = sum(1 for k in keys if abs(got.get(k, base[k]) - base[k]) > 1e-9)
+        results.setdefault(path, []).append((variant, differ, value))
+
+    dead, weak, live = [], [], []
+    for path, trials in sorted(results.items()):
+        total = sum(d for _v, d, _c in trials)
+        (dead if total == 0 else weak if total <= 1 else live).append((path, trials))
+
+    for title, group in (("NO EFFECT either direction -- dead knob", dead),
+                         ("BARELY responds (1 game of %d)" % (len(keys) or 1), weak),
+                         ("responds", live)):
+        print(f"\n{title}: {len(group)}")
+        for path, trials in group:
+            cur = trials[0][2]
+            shown = "  ".join(f"{v!r}->{d}/{len(keys)}" for v, d, _c in trials)
+            print(f"  {path:<30} now {cur!r:<10} {shown}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--budget", type=int, default=35, help="evaluations")
@@ -252,7 +348,13 @@ def main():
                     help="stage-3 check on further holdout seeds, before shipping")
     ap.add_argument("--check-space", action="store_true",
                     help="verify each dimension actually changes behaviour before searching")
+    ap.add_argument("--check-all", action="store_true",
+                    help="probe every tunable constant in main.py for dead range")
     args = ap.parse_args()
+
+    if args.check_all:
+        check_all(args.pool[:2], [600, 601], args.workers)
+        return
 
     if args.check_space:
         # A dimension the agent does not respond to across most of its range is
