@@ -506,13 +506,22 @@ DAILY_ANIMAL_YIELD = {"GOOSE": 2.0, "COW": 1.5, "SHEEP": 4.0 / 3.0}
 #     seeds 320-327   1.3  +7.8pp  +1,713        (0.8 on COW instead: +4.7pp)
 #     seeds 330-337   1.3 +12.5pp  +3,726    1.7 +17.2pp  +5,038
 #     pooled          1.3  94/128 = 73.4% against the control's 63.3%
-# 1.3 was shipped first, confirmed on two seed sets, with the note that the
-# curve had not turned over at 1.7. It had not: the joint CMA-ES search moved
-# it to 2.73, but only alongside MARGINAL_ACTION_VALUE 33.5 and TRAVEL_DIVISOR
-# 16.7. Sweeping sheep alone had found 2.2 and 3.0 *worse* than 1.3 at the old
-# values of those two, so this is a genuine three-way interaction and exactly
-# what one-constant-at-a-time sweeping cannot see. See the note on
-# MARGINAL_ACTION_VALUE for the joint measurement.
+# 1.3 was shipped first, then the joint CMA-ES search moved it to 2.73 alongside
+# MARGINAL_ACTION_VALUE 33.5 and TRAVEL_DIVISOR 16.7. See the note on
+# MARGINAL_ACTION_VALUE for that measurement.
+#
+# This value SATURATES, and it is worth knowing before touching it. The bias
+# enters only through the sort order in animal_targets, so once it is large
+# enough to put sheep ahead of cows at any realistic price, raising it further
+# changes nothing at all. At base prices the raw margins are 114 for a cow and
+# 141 for a sheep, so sheep leads from about 0.81 upward, and an SPRT of 2.7289
+# against 3.2 returned 400 pairs and 400 draws -- not a small effect, no effect,
+# byte-identical games. A scan puts the saturation point near 1.6.
+#
+# So 2.7289 is doing nothing that 2.0 would not. It is kept because that is the
+# value the holdouts validated and changing it would ship an unmeasured config,
+# but the credit for the +11.5pp belongs to the other two constants, with this
+# one only needing to sit above the flip point.
 ANIMAL_MARGIN_BIAS = {"GOOSE": 1.0, "COW": 1.0, "SHEEP": 2.7289}
 ANIMAL_FIRST_YIELD = {"GOOSE": 4, "COW": 8, "SHEEP": 6}
 # Latest day a purchase still repays its cost before the season ends.

@@ -100,8 +100,15 @@ HOLDOUT_SEEDS = list(range(500, 530))
 # extra dimension costs resolution we do not have. These three have the largest
 # measured behavioural effect, and run one pushed MARGINAL_ACTION_VALUE hard
 # against its upper bound, which is worth resolving.
+# Bounds matter more than they look. ANIMAL_MARGIN_BIAS.SHEEP enters only
+# through a sort order, so once it is large enough to put sheep ahead of cows at
+# any realistic price the agent stops responding to it: measured, every value
+# from about 1.6 to 3.5 produces byte-identical games. Searching [0.8, 3.5] spent
+# roughly seventy percent of that axis on a single behaviour, which is why the
+# search happily returned 2.7289 -- a number that does nothing 2.0 would not.
+# Run --check-space before trusting a new dimension.
 SPACE = [
-    ("ANIMAL_MARGIN_BIAS.SHEEP",  0.8,  3.5, False),
+    ("ANIMAL_MARGIN_BIAS.SHEEP",  0.8,  2.2, False),
     ("MARGINAL_ACTION_VALUE",    14.0, 60.0, False),
     ("TRAVEL_DIVISOR",            6.0, 22.0, False),
 ]
@@ -243,7 +250,36 @@ def main():
                     help="stage-2 check of the search leader on held-out seeds")
     ap.add_argument("--promote", action="store_true",
                     help="stage-3 check on further holdout seeds, before shipping")
+    ap.add_argument("--check-space", action="store_true",
+                    help="verify each dimension actually changes behaviour before searching")
     args = ap.parse_args()
+
+    if args.check_space:
+        # A dimension the agent does not respond to across most of its range is
+        # budget thrown away, and it makes the search look like it is exploring
+        # when it is not. Three points per axis, identical seeds, compare our own
+        # final scores: identical scores mean identical games.
+        seeds = [600, 601]
+        pool = args.pool[:2]
+        print("checking each dimension actually moves the agent")
+        print("(same seeds, same opponents; identical scores mean identical games)\n")
+        for path, lo, hi, _ai in SPACE:
+            mid = (lo + hi) / 2
+            labels = [(f"{v:g}", None, ((path, v),)) for v in (lo, mid, hi)]
+            rows = run(labels, seeds, pool, args.workers)
+            by = {}
+            for label, opp, seed, seat, mine, _ in rows:
+                by.setdefault(label, {})[(opp, seed, seat)] = mine
+            keys = list(next(iter(by.values())))
+            # Label order, not dict-insertion order: rows come back in whatever
+            # order the worker pool finishes them, which printed "14 vs 6".
+            names = [label for label, _ref, _ov in labels]
+            print(f"  {path}")
+            for a, b in ((0, 1), (1, 2), (0, 2)):
+                d = sum(1 for k in keys if abs(by[names[a]][k] - by[names[b]][k]) > 1e-9)
+                flag = "   <- NO EFFECT, narrow the bounds" if d == 0 else ""
+                print(f"    {names[a]:>8} vs {names[b]:>8}: {d}/{len(keys)} games differ{flag}")
+        return
 
     import main as agent
     defaults = []
