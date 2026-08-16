@@ -1,7 +1,16 @@
-"""V14 route with the premium-sale preemption widened from 1 step to 3.
+"""V14 route, adapted to the 1.32.7 market.
+
+  * premium-sale preemption widened from 1 step to 3
+  * the 13 end-of-season wheat plantings the schedule lifts at age 3
+    grown as CARROT instead -- nobody in a field of route clones grows
+    carrots, so the town ends 400 units short of them
+  * CARROT/TOMATO/EGG sold off the real price ladder while a unit still
+    fetches 0.3 x base; the recording has no SELL order for any of
+    the three, so this can only add sales, never retime the tuned ones
 
 See kernels/build_combined.py for what was and was not combined, and why."""
 import base64
+import math
 import copy
 import json
 import zlib
@@ -287,14 +296,263 @@ def _final_drop_cash(obs, action, step):
     return result
 
 
+# ----------------------------------------------------------------------------
+# Market model, transcribed from kaggle_environments/envs/kaggriculture at
+# 1.32.7. The agent is handed market.inventory and market.prices in full, so it
+# can price a sale exactly instead of guessing. Prices are recomputed per unit
+# inside the order, which is the whole reason sale sizing matters.
+# ----------------------------------------------------------------------------
+_MKT_I0 = 10000
+_MKT_PRICE_FLOOR = 1
+_MKT_HINGE_GAIN = 8.0
+
+# item: (base, T, below_func, below_target, above_func, above_target)
+_MKT_PARAMS = {
+    'WHEAT':      (25, 400, 'sqrt', 0.80, 'log', 0.20),
+    'CARROT':     (35, 450, 'hinge', 1.00, 'sqrt', 0.70),
+    'TOMATO':     (60, 200, 'hinge', 0.40, 'sqrt', 0.60),
+    'STRAWBERRY': (120, 100, 'sqrt', 0.70, 'linear', 1.60),
+    'MELON':      (250, 300, 'log', 0.20, 'sq', 3.60),
+    'EGG':        (50, 332, 'hinge', 0.40, 'log', 0.20),
+    'MILK':       (160, 122, 'sqrt', 0.60, 'linear', 1.60),
+    'WOOL':       (200, 105, 'log', 0.20, 'sq', 3.20),
+    'FERTILIZER': (100, 200, 'linear', 0.40, 'linear', 0.40),
+}
+
+
+def _mkt_shape(func, x, T=None):
+    x = max(0.0, x)
+    if func == 'linear':
+        return x
+    if func == 'sq':
+        return x * x
+    if func == 'sqrt':
+        return math.sqrt(x)
+    if func == 'log':
+        return math.log(1.0 + x)
+    if func == 'hinge':
+        if not T or T <= 0:
+            return x
+        u = x / T
+        return u + _MKT_HINGE_GAIN * max(0.0, u - 1.0) ** 2
+    return x
+
+
+def _mkt_price(item, inventory):
+    p = _MKT_PARAMS.get(item)
+    if p is None:
+        return _MKT_PRICE_FLOOR
+    base, T, below_f, below_t, above_f, above_t = p
+    if inventory < _MKT_I0:
+        amp = below_t * base / _mkt_shape(below_f, T, T)
+        price = base + amp * _mkt_shape(below_f, _MKT_I0 - inventory, T)
+    else:
+        amp = above_t * base / _mkt_shape(above_f, T, T)
+        price = base - amp * _mkt_shape(above_f, inventory - _MKT_I0, T)
+    return max(_MKT_PRICE_FLOOR, int(round(price)))
+
+
+# Exactly the products the recording has no SELL order for anywhere in its 720
+# steps. That restriction is the whole safety argument: this layer can only add
+# sales the schedule was never going to make, so it cannot disturb the tuned
+# timing of the ones it does make. Applying it to the route's own products
+# instead costs money monotonically -- measured against stock, floor 0.90 loses
+# $1,456 and floor 0.0 loses $3,761, with the opponent's score unmoved, so it
+# is pure self-harm. Without this layer a swapped herd's eggs would sit in the
+# shed until the buzzer and score nothing.
+EAGER_SELL_ITEMS = ('EGG', 'CARROT', 'TOMATO')
+
+# Sell that stock while a unit still fetches this fraction of base. None
+# disables the layer exactly and is the A/B control.
+EAGER_FLOOR_FRAC = 0.3
+
+
+def _affordable_units(item, inventory, want, floor_frac):
+    """How many of `want` units still clear the floor, walking the ladder down."""
+    p = _MKT_PARAMS.get(item)
+    if p is None:
+        return want
+    floor = p[0] * floor_frac
+    sold = 0
+    inv = inventory
+    while sold < want:
+        price = _mkt_price(item, inv)
+        if price < floor:
+            break
+        sold += 1
+        # The environment only counts a sale into supply when it clears $1.
+        if price > _MKT_PRICE_FLOOR:
+            inv += 1
+    return sold
+
+
+def _eager_sell(action, obs, step):
+    """Sell pure-output stock ahead of the recorded schedule while it pays."""
+    if EAGER_FLOOR_FRAC is None:
+        return action
+
+    market_view = _value(obs, 'market', {}) or {}
+    inventory = _value(market_view, 'inventory', {}) or {}
+    private = _value(obs, 'private', {}) or {}
+    shed = _value(private, 'shed', {}) or {}
+
+    action = _copy_plan(action)
+    market = [list(order) for order in action.get('market') or []]
+
+    for item in EAGER_SELL_ITEMS:
+        already = _market_sell_qty(action, item)
+        spare = (max(0, int(_value(shed, item, 0) or 0))
+                 - _pickup_holdback(action, item) - already)
+        if spare <= 0:
+            continue
+        # Our own scheduled units go down the ladder first, so price the extra
+        # ones from where that order leaves the market.
+        inv = int(_value(inventory, item, _MKT_I0) or _MKT_I0) + already
+        extra = _affordable_units(item, inv, spare, EAGER_FLOOR_FRAC)
+        if extra <= 0:
+            continue
+        existing = next((o for o in market
+                         if len(o) >= 3 and o[0] == 'SELL' and o[1] == item), None)
+        if existing is not None:
+            existing[2] = max(0, int(existing[2])) + extra
+        elif len(market) < 10:
+            market.append(['SELL', item, extra])
+
+    action['market'] = market[:10]
+    return action
+
+
+# ----------------------------------------------------------------------------
+# Herd swap: rewrite the recording itself, once, at import.
+#
+# The route's animal program is 8 cows and 4 sheep, which is up to 176 milk and
+# 64 wool aimed at purses worth $6,181 and $7,928. Eggs have a log price curve
+# with a 0.20 target -- so shallow it is effectively flat -- and the town eats
+# them all season with nobody restocking. This retargets the same choreography.
+#
+# All-or-nothing by design: PLACE only succeeds when the worker is standing on
+# a structure matching the animal, so converting some pastures to coops while
+# still placing cows would silently drop those animals on the floor. The
+# rewrite therefore refuses unless every animal the route places is covered.
+#
+# {} disables it exactly and is the A/B control.
+# ----------------------------------------------------------------------------
+HERD_SWAP = {}
+
+_ANIMAL_STRUCTURE = {'COW': 'PASTURE', 'SHEEP': 'PASTURE', 'GOOSE': 'COOP'}
+_BUILD_OP = {'PASTURE': 'BUILD_PASTURE', 'COOP': 'BUILD_COOP'}
+_ANIMAL_ORDER_OPS = ('PLACE', 'PICKUP', 'DROP')
+
+# The recording as published, kept so the swap can be re-derived rather than
+# accumulated. Rewriting _ROUTE in place would make HERD_SWAP a one-shot import
+# side effect, and a sweep that sets it between games would read the previous
+# game's herd.
+_ROUTE_STOCK = copy.deepcopy(_ROUTE)
+_EDITS_APPLIED = None
+
+
+# ----------------------------------------------------------------------------
+# Carrot swap: the one substitution the schedule can absorb.
+#
+# The route is 95% busy and acts on every unlocked tile, so there is no slack to
+# grow anything extra in. Substitution is the only lever, and it is tightly
+# constrained: WHEAT waters at ages 2-4 and its tile survives to age 5, CARROT
+# waters at ages 2-3 and its tile starts decaying at age 4. Of 141 wheat
+# plantings, 128 are lifted at age 4 -- a carrot there would already be rotting.
+# The other 13 are the end-of-season batch, planted day 26 and lifted day 29,
+# and those fit a carrot exactly.
+#
+# It is worth doing because nobody in a field of route clones grows carrots, so
+# the town eats them all season with no restocking: a route-vs-route game ends
+# with carrot 408 units short at $65 while wheat sits at $42. Selling carrot
+# instead of wheat also stops us competing with ourselves in the wheat market.
+# () disables it exactly and is the A/B control.
+# ----------------------------------------------------------------------------
+CARROT_SWAP = ((629, 9), (633, 7), (633, 10), (633, 11), (634, 9), (635, 6), (638, 10), (639, 5), (639, 9), (641, 0), (641, 6), (645, 5), (645, 10))
+CARROT_SEED_STEP = 600
+
+
+def _swap_carrot():
+    if not CARROT_SWAP:
+        return
+    planted = 0
+    for step, hand in CARROT_SWAP:
+        if not 0 <= step < len(_ROUTE):
+            continue
+        hands = _ROUTE[step].get('hands') or []
+        if not 0 <= hand < len(hands):
+            continue
+        unit = hands[hand]
+        if unit and len(unit) >= 2 and unit[0] == 'PLANT' and unit[1] == 'WHEAT':
+            unit[1] = 'CARROT'
+            planted += 1
+    if planted and 0 <= CARROT_SEED_STEP < len(_ROUTE):
+        market = _ROUTE[CARROT_SEED_STEP].setdefault('market', [])
+        if len(market) < 10:
+            market.append(['BUY_SEED', 'CARROT', planted])
+
+
+def _apply_route_edits():
+    """Rebuild _ROUTE from the published recording under the current edits."""
+    global _ROUTE, _EDITS_APPLIED
+    key = (tuple(sorted(HERD_SWAP.items())), tuple(CARROT_SWAP), CARROT_SEED_STEP)
+    if _EDITS_APPLIED == key:
+        return
+    _EDITS_APPLIED = key
+    _ROUTE = copy.deepcopy(_ROUTE_STOCK)
+    _swap_carrot()
+    _swap_herd()
+
+
+def _swap_herd():
+    if not HERD_SWAP:
+        return
+
+    placed = set()
+    for trace in _ROUTE:
+        for unit in [trace.get('farmer')] + list(trace.get('hands') or []):
+            if unit and len(unit) >= 2 and unit[0] == 'PLACE' and unit[1] in _ANIMAL_STRUCTURE:
+                placed.add(unit[1])
+        for order in trace.get('market') or []:
+            if order and order[0] == 'BUY_ANIMAL' and len(order) >= 2:
+                placed.add(order[1])
+    # A partial swap would strand animals: PLACE only succeeds on a structure
+    # matching the animal, so a cow placed on a converted coop is money burnt.
+    if not placed or not placed.issubset(HERD_SWAP):
+        return
+    targets = {_ANIMAL_STRUCTURE[HERD_SWAP[a]] for a in placed}
+    if len(targets) != 1:
+        return
+    build_op = _BUILD_OP[next(iter(targets))]
+    old_builds = {op for op in _BUILD_OP.values() if op != build_op}
+
+    for trace in _ROUTE:
+        for unit in [trace.get('farmer')] + list(trace.get('hands') or []):
+            if not unit:
+                continue
+            if unit[0] in old_builds:
+                unit[0] = build_op
+            elif (unit[0] in _ANIMAL_ORDER_OPS and len(unit) >= 2
+                  and unit[1] in HERD_SWAP):
+                unit[1] = HERD_SWAP[unit[1]]
+        for order in trace.get('market') or []:
+            if order and order[0] == 'BUY_ANIMAL' and len(order) >= 2 and order[1] in HERD_SWAP:
+                order[1] = HERD_SWAP[order[1]]
+
+
+_apply_route_edits()
+
+
 def agent(obs):
     try:
+        _apply_route_edits()
         step = min(max(0, int(_value(obs, 'step', 0) or 0)), len(_ROUTE) - 1)
         action = _repair_weed_block(obs, _copy_plan(_ROUTE[step]), step)
         state = _lead_state(obs, step)
         action = _remove_advanced_qty(action, state, step)
         action = _advance_sale(action, obs, state, step)
         action = _final_drop_cash(obs, action, step)
+        action = _eager_sell(action, obs, step)
         return _match_hands(action, obs)
     except Exception:
         farm = _farm_view(obs, _player(obs))
