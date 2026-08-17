@@ -543,6 +543,122 @@ def _swap_herd():
 _apply_route_edits()
 
 
+# ----------------------------------------------------------------------------
+# Pasture retarget: let the town decide cow versus sheep.
+#
+# The town's eight shops are drawn per episode WITH REPLACEMENT, so how much
+# wool and milk the town eats is a per-game fact -- and it is handed to the
+# agent in obs.town.unlocked_shops. The recording ignores it and buys the same
+# 8 cows and 4 sheep every single game. Over 20 route-vs-route games, WOOL ends
+# more than 50 units SHORT at around $240 in 9 of them, while MILK ends 74 units
+# LONG at $5 in most. The herd is wrong in both directions at once.
+#
+# Episode 93781740 is what that costs. The town drew two YARN_STOREs -- single
+# product, so two units a tick each -- and wool never fell below $246 all game.
+# The opponent ran 8 sheep to our 4 and took $66,063 of wool to our $31,383.
+# That one product is a bigger gap than the entire $34,001 match margin.
+#
+# COW and SHEEP both live on a PASTURE, so this is a rename and nothing more --
+# no structure changes, no choreography changes, and PLACE cannot strand an
+# animal on the wrong building the way the goose experiment could. Only the
+# BUY is a decision; PICKUP and PLACE are corrected to whatever we actually
+# hold, so the three can never disagree.
+#
+# It works, and it is switched OFF, because it wins money and loses games.
+# Measured against the stock route over 32 seeds, 128 games:
+#
+#     PASTURE_TILT None   64/64 wins   our 93,628   theirs 91,222
+#     PASTURE_TILT 1.0    54/64 wins   our 94,844   theirs 93,780
+#
+# In the games where it fires it is worth +$8,500 to +$9,000 and never once
+# hurts our own score. It still costs ten wins, because vacating milk hands a
+# cow-heavy opponent an uncontested run at it: our score goes up $1,216 and
+# theirs goes up $2,558. The reward here is the bank balance but the RANKING is
+# win-based, so a change that enriches both sides and the opponent more is a
+# losing trade. 0.6, 1.0 and 1.6 all decide identically -- the wool/milk call is
+# never close -- so this is the change itself failing, not the threshold.
+#
+# Left in, wired up and measured rather than deleted, because it is the correct
+# response to a sheep-heavy FIELD and the wrong response to a clone. If the
+# leaderboard fills with Jince-like builds that contest wool, it becomes right.
+# ----------------------------------------------------------------------------
+PASTURE_TILT = None
+
+# Day 0 buys 4 sheep and a cow before a single shop has opened, so there is
+# nothing to react to; the first shop unlocks on day 3. Everything the route
+# buys from here on is a live decision.
+PASTURE_DECIDE_STEP = 72
+
+_PASTURE_ANIMALS = ('COW', 'SHEEP')
+_PASTURE_PRODUCT = {'COW': 'MILK', 'SHEEP': 'WOOL'}
+_PASTURE_COST = {'COW': 400, 'SHEEP': 500}
+
+
+def _town_rate(obs, item):
+    """Units of `item` the town eats per shop tick, from the shops it has opened."""
+    town = _value(obs, 'town', {}) or {}
+    rate = 0
+    for shop in list(_value(town, 'unlocked_shops', []) or []):
+        products = _SHOP_DEMAND.get(shop, ())
+        if item in products:
+            rate += 2 if len(products) == 1 else 1
+    return rate
+
+
+def _preferred_pasture(obs):
+    wool = _town_rate(obs, 'WOOL') * _MKT_PARAMS['WOOL'][0]
+    milk = _town_rate(obs, 'MILK') * _MKT_PARAMS['MILK'][0]
+    return 'SHEEP' if wool > milk * PASTURE_TILT else 'COW'
+
+
+def _retarget_pasture(action, obs, step):
+    if PASTURE_TILT is None:
+        return action
+
+    seat = _player(obs)
+    farm = _farm_view(obs, seat)
+    private = _value(obs, 'private', {}) or {}
+    shed = _value(private, 'shed', {}) or {}
+    inventories = list(_value(private, 'inventories', []) or [])
+    action = _copy_plan(action)
+
+    if step >= PASTURE_DECIDE_STEP:
+        want = _preferred_pasture(obs)
+        money = float(_value(farm, 'money', 0) or 0)
+        for order in action.get('market') or []:
+            if (len(order) >= 2 and order[0] == 'BUY_ANIMAL'
+                    and order[1] in _PASTURE_ANIMALS and order[1] != want):
+                # A sheep costs $100 more than a cow and the route runs its
+                # balance down to double digits in the first week. A buy that
+                # cannot be afforded is not a worse animal, it is no animal, so
+                # only upgrade when the money is already in hand.
+                if money >= _PASTURE_COST[want] * (int(order[2]) if len(order) > 2 else 1):
+                    order[1] = want
+
+    # PICKUP and PLACE are corrected to what we are actually holding rather than
+    # decided again, so a purchase that was retargeted (or refused) still lines
+    # up with the animal that reaches the pasture.
+    units = [('farmer', action.get('farmer'))]
+    units += [(i, h) for i, h in enumerate(action.get('hands') or [])]
+    for idx, (_slot, unit) in enumerate(units):
+        if not unit or len(unit) < 2 or unit[1] not in _PASTURE_ANIMALS:
+            continue
+        if unit[0] == 'PICKUP':
+            if int(_value(shed, unit[1], 0) or 0) <= 0:
+                other = next((a for a in _PASTURE_ANIMALS
+                              if int(_value(shed, a, 0) or 0) > 0), None)
+                if other:
+                    unit[1] = other
+        elif unit[0] == 'PLACE':
+            inv = inventories[idx] if idx < len(inventories) else {}
+            if int(_value(inv, unit[1], 0) or 0) <= 0:
+                other = next((a for a in _PASTURE_ANIMALS
+                              if int(_value(inv, a, 0) or 0) > 0), None)
+                if other:
+                    unit[1] = other
+    return action
+
+
 def agent(obs):
     try:
         _apply_route_edits()
@@ -552,6 +668,7 @@ def agent(obs):
         action = _remove_advanced_qty(action, state, step)
         action = _advance_sale(action, obs, state, step)
         action = _final_drop_cash(obs, action, step)
+        action = _retarget_pasture(action, obs, step)
         action = _eager_sell(action, obs, step)
         return _match_hands(action, obs)
     except Exception:
