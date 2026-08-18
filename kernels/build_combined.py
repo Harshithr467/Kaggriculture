@@ -110,6 +110,57 @@ What can and cannot be combined, measured rather than assumed:
   Both numbers move the same way and the opponent's does not move at all,
   which is what a change that adds revenue rather than taking it looks like.
 
+* The MELON OPENING, which is the single biggest gap in the live record, does
+  NOT transplant. It is worth writing down at length because it is the most
+  expensive-looking opportunity on the board and it is a trap.
+
+  Across 39 live losses melon is the primary cause in 17 of them, and the gap is
+  +13,584 in fifteen separate games against fifteen different opponents. The
+  same number every time, because it is structural: they plant 12 melons on day
+  0 and harvest into a virgin $250 market on day 10; we plant 5, then 14 more on
+  days 10-11 that ripen on day 20 into a market that died on day 11 and fetch
+  about $500 in total.
+
+  Copying it needs ground, seed and hands, and the route has none of the three:
+
+    GROUND. Of NW's 25 tiles, 19 are planted and the other 6 are pastures with
+    animals on them. An extra melon must displace a crop, and the cheapest are
+    three tiles the route plants with STRAWBERRY on day 3 -- but strawberry is
+    our single best market at about $244 a unit, so per tile-day it is a wash
+    before any costs.
+
+    SEED. The route LOOKS like it has spare melon seed: it orders 8 on day 0 and
+    plants 5. It does not. The day-0 order is cash-clipped -- 5 requested at step
+    0, only 2 clear -- and the farm is on $4 by day 1 and never has $80 spare
+    again until day 5, by which point a melon ripens on day 15 and misses the
+    window. Requested quantities are not delivered quantities. The first version
+    of this layer planted nothing at all for exactly this reason.
+
+    HANDS. Hiring is the one clean insertion point, because hands are re-hired
+    nightly at fib(hires_today) and the route addresses them by index, so one
+    more hand than it expects is ours outright. It costs $8 on day 0 and $1-$21
+    a day through day 9 -- but $610 on day 10, when the roster hits 14.
+
+  All of it was built and it works mechanically: three melons planted on days
+  1-3, grown to the full 6 units each, harvested on day 11 and sold on day 11.
+  It still loses every game.
+
+      MELON_PATCH ()                      100.0% wins   our 92,959
+      MELON_PATCH 3 tiles, no seed         56.2% wins   our 91,328
+      MELON_PATCH 3 tiles, funded          0.0% wins   our 85,172, theirs 107,591
+
+  Both halves lose independently. Merely carrying the extra hand costs $1,631
+  and forty-four points of win rate in hire fees. Funding the seed by dropping
+  one of the four day-0 sheep costs another $6,156 and hands the opponent
+  $14,632 -- one sheep is roughly 16 wool at $200, and the three strawberry
+  tiles were worth more than the melon that replaced them.
+
+  The conclusion is the same one the lifted-route experiment reached from the
+  other direction: the day-0 melon opening is not a module. It comes bundled
+  with 2 cows instead of 1, 2 sheep instead of 4, all four quadrants, and
+  strawberry displaced to land we never buy. Copying one piece of a plan into a
+  plan built on different assumptions costs more than it gains.
+
 * NO_BUY_LAST_DAYS has no home either: the route's only late purchases are
   HIRE orders on step 696, and hands are re-hired daily and cost a few dollars,
   so gating them buys nothing.
@@ -136,6 +187,39 @@ CARROT_SWAP_VALUE = (
 # PLANT is atomic per crop -- if a turn asks to plant more of a crop than there
 # is seed for, EVERY plant of that crop that turn is dropped.
 CARROT_SEED_STEP_VALUE = 600
+
+# Tiles borrowed for an early melon patch, and when to lift it.
+#
+# The route plants 5 melons on day 0 and 14 more on days 10-11. The first batch
+# harvests on day 10 into a virgin $250 market; the second harvests on day 20
+# into a market that died on day 11 and is worth about $500 in total. Every
+# opponent that beats us plants 12 on day 0.
+#
+# There is no spare ground to copy them with. Of the NW quadrant's 25 tiles, 19
+# are planted and the remaining 6 are pastures with animals on them, so an extra
+# melon has to displace a crop. These three are the cheapest: the route first
+# plants them on day 3, with STRAWBERRY that then sits until day 19.
+#
+# () disables it exactly and is the A/B control.
+MELON_PATCH_VALUE = ()   # measured and switched OFF; see the module docstring
+MELON_PATCH_PLANT_DAY_VALUE = 1     # not day 0: PLANT is atomic per crop per turn,
+                                    # and colliding with the route's own melon
+                                    # planting would drop BOTH sets
+MELON_PATCH_HARVEST_DAY_VALUE = 11  # planted day 1, first yield day 11
+
+# Where the seed money comes from. The route looks like it has spare melon seed
+# -- it orders 8 on day 0 and plants 5 -- but it does not: the day-0 order is
+# CASH-CLIPPED. It asks for 5 melon at step 0 and only 2 clear, then 3 more at
+# step 1, and the farm is down to $4 by day 1 and never has $80 spare again
+# until day 5, by which point a melon would ripen on day 15 and miss the window
+# entirely. Requested quantities are not delivered quantities; that mistake cost
+# the first version of this layer, which planted nothing at all.
+#
+# So the seed has to be paid for on day 0, and the only slack on day 0 is the
+# herd. The route buys 1 cow and 4 sheep for $2,400; every opponent that beats
+# us buys 2 and 2 and puts the difference into melon. One sheep is $500, which
+# is six melon seeds with change.
+MELON_PATCH_SHEEP_CUT_VALUE = 1
 
 src = io.open(os.path.join(HERE, "route_agent.py"), encoding="utf-8").read()
 
@@ -367,15 +451,38 @@ def _swap_carrot():
             market.append(['BUY_SEED', 'CARROT', planted])
 
 
+def _swap_melon_seed():
+    """Pay for the patch out of the day-0 herd, in the recording itself."""
+    if not MELON_PATCH or not MELON_PATCH_SHEEP_CUT:
+        return
+    cut = MELON_PATCH_SHEEP_CUT
+    for trace in _ROUTE[:24]:
+        for order in trace.get('market') or []:
+            if (len(order) >= 3 and order[0] == 'BUY_ANIMAL'
+                    and order[1] == 'SHEEP' and cut > 0):
+                take = min(cut, max(0, int(order[2]) - 1))
+                order[2] = int(order[2]) - take
+                cut -= take
+    # Melon seed is $80; a sheep is $500. Buy the patch and leave the change,
+    # because day 0 is already spending to the last dollar.
+    for trace in _ROUTE[:24]:
+        for order in trace.get('market') or []:
+            if len(order) >= 3 and order[0] == 'BUY_SEED' and order[1] == 'MELON':
+                order[2] = int(order[2]) + len(MELON_PATCH)
+                return
+
+
 def _apply_route_edits():
     """Rebuild _ROUTE from the published recording under the current edits."""
     global _ROUTE, _EDITS_APPLIED
-    key = (tuple(sorted(HERD_SWAP.items())), tuple(CARROT_SWAP), CARROT_SEED_STEP)
+    key = (tuple(sorted(HERD_SWAP.items())), tuple(CARROT_SWAP), CARROT_SEED_STEP,
+           tuple(MELON_PATCH), MELON_PATCH_SHEEP_CUT)
     if _EDITS_APPLIED == key:
         return
     _EDITS_APPLIED = key
     _ROUTE = copy.deepcopy(_ROUTE_STOCK)
     _swap_carrot()
+    _swap_melon_seed()
     _swap_herd()
 
 
@@ -415,11 +522,147 @@ def _swap_herd():
                 order[1] = HERD_SWAP[order[1]]
 
 
-_apply_route_edits()
-
-
 # ----------------------------------------------------------------------------
-# Pasture retarget: let the town decide cow versus sheep.
+# Early melon patch, worked by a hand the route does not know exists.
+#
+# Melon is the steepest curve on the board (sq, target 3.60: $250 at the top,
+# dead at 158 units), so the day-10 harvest is the single richest moment in the
+# game and it goes to whoever brings the most fruit. Across 15 losses to 15
+# different opponents the melon gap is +13,584 -- the same number every time,
+# because they plant 12 on day 0 and we plant 5.
+#
+# The insertion point is hiring. Hands are cleared and re-hired nightly at
+# fib(hires_today), so one MORE hand than the recording expects costs $8 on day
+# 0 and $1-$21 a day through day 9. The route addresses its hands by index and
+# _match_hands pads the rest with PASS, so that extra slot is ours outright --
+# no desynchronisation risk, unlike stealing an idle turn from a hand the route
+# is going to move next turn.
+#
+# What it cannot do is conjure ground. NW is full, so the patch displaces three
+# strawberries, and strawberry is our best market at roughly $244 a unit. That
+# makes this a genuine trade rather than free money, which is why it is a
+# measured switch and not a rewrite.
+# ----------------------------------------------------------------------------
+MELON_PATCH = {MELON_PATCH_VALUE!r}
+MELON_PATCH_PLANT_DAY = {MELON_PATCH_PLANT_DAY_VALUE}
+MELON_PATCH_HARVEST_DAY = {MELON_PATCH_HARVEST_DAY_VALUE}
+MELON_PATCH_SHEEP_CUT = {MELON_PATCH_SHEEP_CUT_VALUE}
+
+
+def _shed_tiles(farm):
+    size = len(_value(farm, 'tiles', []) or []) or 10
+    half = size // 2
+    return ((half - 1, half - 1), (half, half - 1), (half - 1, half), (half, half))
+
+
+def _step_toward(pos, target):
+    x, y = int(pos[0]), int(pos[1])
+    tx, ty = int(target[0]), int(target[1])
+    if x < tx:
+        return ['EAST']
+    if x > tx:
+        return ['WEST']
+    if y < ty:
+        return ['SOUTH']
+    if y > ty:
+        return ['NORTH']
+    return None
+
+
+def _patch_job(farm, private, idx, pos, day):
+    """One order for a spare hand: plant, water, harvest, or carry to the shed."""
+    inventories = list(_value(private, 'inventories', []) or [])
+    inv = inventories[idx] if idx < len(inventories) else {{}}
+    carrying = int(_value(inv, 'MELON', 0) or 0)
+    if carrying > 0:
+        sheds = _shed_tiles(farm)
+        if tuple(pos) in sheds:
+            return ['DROP']
+        return _step_toward(pos, sheds[0])
+
+    seeds = _value(private, 'seeds', {{}}) or {{}}
+    have_seed = int(_value(seeds, 'MELON', 0) or 0)
+
+    for tile_xy in MELON_PATCH:
+        tile = _tile(farm, tile_xy)
+        ripe = (isinstance(tile, dict) and tile.get('kind') == 'PLANT'
+                and tile.get('crop') == 'MELON')
+        if day >= MELON_PATCH_HARVEST_DAY and ripe:
+            if int(tile.get('yield_units', 0) or 0) <= 0:
+                continue
+            return ['HARVEST'] if tuple(pos) == tile_xy else _step_toward(pos, tile_xy)
+        if day >= MELON_PATCH_HARVEST_DAY:
+            continue
+        if tile is None and have_seed > 0 and day >= MELON_PATCH_PLANT_DAY:
+            return ['PLANT', 'MELON'] if tuple(pos) == tile_xy else _step_toward(pos, tile_xy)
+        # Two consecutive dry days turns the tile to weed, and every watered day
+        # from age 6 on is another unit of fruit, so water whatever is dry.
+        if ripe and not tile.get('watered_today'):
+            return ['WATER'] if tuple(pos) == tile_xy else _step_toward(pos, tile_xy)
+    return None
+
+
+_ROUTE_HANDS_PER_DAY = {{}}
+
+
+def _routed_hands(step):
+    """How many hands the recording addresses on this step's DAY.
+
+    Not len(_ROUTE[step]['hands']): that list is 0 long at hour 0 and only 7
+    long at hour 1 of day 10, when the roster is 14. Reading it per step made
+    this layer hand melon jobs to seven hands the route was relying on, at the
+    single busiest moment of the game.
+    """
+    day = step // 24
+    if day not in _ROUTE_HANDS_PER_DAY:
+        lo, hi = day * 24, min((day + 1) * 24, len(_ROUTE))
+        _ROUTE_HANDS_PER_DAY[day] = max(
+            (len(_ROUTE[s].get('hands') or []) for s in range(lo, hi)), default=0)
+    return _ROUTE_HANDS_PER_DAY[day]
+
+
+def _melon_patch(action, obs, step):
+    if not MELON_PATCH:
+        return action
+    day = step // 24
+    if day > MELON_PATCH_HARVEST_DAY + 2:
+        return action
+
+    seat = _player(obs)
+    farm = _farm_view(obs, seat)
+    hands = list(_value(farm, 'hands', []) or [])
+    routed = _routed_hands(step)
+    private = _value(obs, 'private', {{}}) or {{}}
+    action = _copy_plan(action)
+    market = [list(o) for o in action.get('market') or []]
+
+    # Keep exactly one hand more than the recording addresses.
+    if len(hands) <= routed and len(market) < 10:
+        market.append(['HIRE'])
+
+    # The recording sells melon on day 10 and then not again until day 20, by
+    # which point the market is dead. The patch ripens on day 11, so without
+    # this its fruit would sit in the shed for nine days and fetch $1.
+    if day >= MELON_PATCH_HARVEST_DAY:
+        private_shed = _value(private, 'shed', {{}}) or {{}}
+        held = max(0, int(_value(private_shed, 'MELON', 0) or 0))
+        if held > 0 and not any(
+                len(o) >= 3 and o[0] == 'SELL' and o[1] == 'MELON' for o in market):
+            if len(market) < 10:
+                market.append(['SELL', 'MELON', held])
+    action['market'] = market[:10]
+
+    plan = [list(h or ['PASS']) for h in (action.get('hands') or [])]
+    while len(plan) < len(hands):
+        plan.append(['PASS'])
+    for idx in range(routed, len(hands)):
+        # private.inventories is [farmer, *hands], so hand i is at i + 1.
+        order = _patch_job(farm, private, idx + 1, hands[idx], day)
+        if order:
+            plan[idx] = order
+    action['hands'] = plan
+    return action
+
 #
 # The town's eight shops are drawn per episode WITH REPLACEMENT, so how much
 # wool and milk the town eats is a per-game fact -- and it is handed to the
@@ -532,6 +775,11 @@ def _retarget_pasture(action, obs, step):
                 if other:
                     unit[1] = other
     return action
+
+
+# Applied here, not next to its definition: the edits read MELON_PATCH and
+# CARROT_SWAP, which are declared by layers further down the file.
+_apply_route_edits()
 '''
 
 anchor = "\n\ndef agent(obs):"
@@ -541,6 +789,7 @@ combined = combined.replace(anchor, MARKET_LAYER + HERD_LAYER + anchor, 1)
 OLD_CALL = "        action = _final_drop_cash(obs, action, step)"
 NEW_CALL = ("        action = _final_drop_cash(obs, action, step)\n"
             "        action = _retarget_pasture(action, obs, step)\n"
+            "        action = _melon_patch(action, obs, step)\n"
             "        action = _eager_sell(action, obs, step)")
 assert OLD_CALL in combined, "agent() body does not match the expected shape"
 combined = combined.replace(OLD_CALL, NEW_CALL, 1)
@@ -573,4 +822,5 @@ out = os.path.join(os.path.dirname(HERE), "agent_combined.py")
 io.open(out, "w", encoding="utf-8", newline="").write(combined)
 print(f"wrote {out}  LOOKAHEAD={LOOKAHEAD_VALUE}  "
       f"EAGER_FLOOR_FRAC={EAGER_FLOOR_FRAC_VALUE!r}  HERD_SWAP={HERD_SWAP_VALUE}  "
-      f"CARROT_SWAP={len(CARROT_SWAP_VALUE)} plantings  PASTURE_TILT={PASTURE_TILT_VALUE!r}")
+      f"CARROT_SWAP={len(CARROT_SWAP_VALUE)} plantings  PASTURE_TILT={PASTURE_TILT_VALUE!r}  "
+      f"MELON_PATCH={len(MELON_PATCH_VALUE)} tiles")

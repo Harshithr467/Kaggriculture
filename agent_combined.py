@@ -492,15 +492,38 @@ def _swap_carrot():
             market.append(['BUY_SEED', 'CARROT', planted])
 
 
+def _swap_melon_seed():
+    """Pay for the patch out of the day-0 herd, in the recording itself."""
+    if not MELON_PATCH or not MELON_PATCH_SHEEP_CUT:
+        return
+    cut = MELON_PATCH_SHEEP_CUT
+    for trace in _ROUTE[:24]:
+        for order in trace.get('market') or []:
+            if (len(order) >= 3 and order[0] == 'BUY_ANIMAL'
+                    and order[1] == 'SHEEP' and cut > 0):
+                take = min(cut, max(0, int(order[2]) - 1))
+                order[2] = int(order[2]) - take
+                cut -= take
+    # Melon seed is $80; a sheep is $500. Buy the patch and leave the change,
+    # because day 0 is already spending to the last dollar.
+    for trace in _ROUTE[:24]:
+        for order in trace.get('market') or []:
+            if len(order) >= 3 and order[0] == 'BUY_SEED' and order[1] == 'MELON':
+                order[2] = int(order[2]) + len(MELON_PATCH)
+                return
+
+
 def _apply_route_edits():
     """Rebuild _ROUTE from the published recording under the current edits."""
     global _ROUTE, _EDITS_APPLIED
-    key = (tuple(sorted(HERD_SWAP.items())), tuple(CARROT_SWAP), CARROT_SEED_STEP)
+    key = (tuple(sorted(HERD_SWAP.items())), tuple(CARROT_SWAP), CARROT_SEED_STEP,
+           tuple(MELON_PATCH), MELON_PATCH_SHEEP_CUT)
     if _EDITS_APPLIED == key:
         return
     _EDITS_APPLIED = key
     _ROUTE = copy.deepcopy(_ROUTE_STOCK)
     _swap_carrot()
+    _swap_melon_seed()
     _swap_herd()
 
 
@@ -540,11 +563,147 @@ def _swap_herd():
                 order[1] = HERD_SWAP[order[1]]
 
 
-_apply_route_edits()
-
-
 # ----------------------------------------------------------------------------
-# Pasture retarget: let the town decide cow versus sheep.
+# Early melon patch, worked by a hand the route does not know exists.
+#
+# Melon is the steepest curve on the board (sq, target 3.60: $250 at the top,
+# dead at 158 units), so the day-10 harvest is the single richest moment in the
+# game and it goes to whoever brings the most fruit. Across 15 losses to 15
+# different opponents the melon gap is +13,584 -- the same number every time,
+# because they plant 12 on day 0 and we plant 5.
+#
+# The insertion point is hiring. Hands are cleared and re-hired nightly at
+# fib(hires_today), so one MORE hand than the recording expects costs $8 on day
+# 0 and $1-$21 a day through day 9. The route addresses its hands by index and
+# _match_hands pads the rest with PASS, so that extra slot is ours outright --
+# no desynchronisation risk, unlike stealing an idle turn from a hand the route
+# is going to move next turn.
+#
+# What it cannot do is conjure ground. NW is full, so the patch displaces three
+# strawberries, and strawberry is our best market at roughly $244 a unit. That
+# makes this a genuine trade rather than free money, which is why it is a
+# measured switch and not a rewrite.
+# ----------------------------------------------------------------------------
+MELON_PATCH = ()
+MELON_PATCH_PLANT_DAY = 1
+MELON_PATCH_HARVEST_DAY = 11
+MELON_PATCH_SHEEP_CUT = 1
+
+
+def _shed_tiles(farm):
+    size = len(_value(farm, 'tiles', []) or []) or 10
+    half = size // 2
+    return ((half - 1, half - 1), (half, half - 1), (half - 1, half), (half, half))
+
+
+def _step_toward(pos, target):
+    x, y = int(pos[0]), int(pos[1])
+    tx, ty = int(target[0]), int(target[1])
+    if x < tx:
+        return ['EAST']
+    if x > tx:
+        return ['WEST']
+    if y < ty:
+        return ['SOUTH']
+    if y > ty:
+        return ['NORTH']
+    return None
+
+
+def _patch_job(farm, private, idx, pos, day):
+    """One order for a spare hand: plant, water, harvest, or carry to the shed."""
+    inventories = list(_value(private, 'inventories', []) or [])
+    inv = inventories[idx] if idx < len(inventories) else {}
+    carrying = int(_value(inv, 'MELON', 0) or 0)
+    if carrying > 0:
+        sheds = _shed_tiles(farm)
+        if tuple(pos) in sheds:
+            return ['DROP']
+        return _step_toward(pos, sheds[0])
+
+    seeds = _value(private, 'seeds', {}) or {}
+    have_seed = int(_value(seeds, 'MELON', 0) or 0)
+
+    for tile_xy in MELON_PATCH:
+        tile = _tile(farm, tile_xy)
+        ripe = (isinstance(tile, dict) and tile.get('kind') == 'PLANT'
+                and tile.get('crop') == 'MELON')
+        if day >= MELON_PATCH_HARVEST_DAY and ripe:
+            if int(tile.get('yield_units', 0) or 0) <= 0:
+                continue
+            return ['HARVEST'] if tuple(pos) == tile_xy else _step_toward(pos, tile_xy)
+        if day >= MELON_PATCH_HARVEST_DAY:
+            continue
+        if tile is None and have_seed > 0 and day >= MELON_PATCH_PLANT_DAY:
+            return ['PLANT', 'MELON'] if tuple(pos) == tile_xy else _step_toward(pos, tile_xy)
+        # Two consecutive dry days turns the tile to weed, and every watered day
+        # from age 6 on is another unit of fruit, so water whatever is dry.
+        if ripe and not tile.get('watered_today'):
+            return ['WATER'] if tuple(pos) == tile_xy else _step_toward(pos, tile_xy)
+    return None
+
+
+_ROUTE_HANDS_PER_DAY = {}
+
+
+def _routed_hands(step):
+    """How many hands the recording addresses on this step's DAY.
+
+    Not len(_ROUTE[step]['hands']): that list is 0 long at hour 0 and only 7
+    long at hour 1 of day 10, when the roster is 14. Reading it per step made
+    this layer hand melon jobs to seven hands the route was relying on, at the
+    single busiest moment of the game.
+    """
+    day = step // 24
+    if day not in _ROUTE_HANDS_PER_DAY:
+        lo, hi = day * 24, min((day + 1) * 24, len(_ROUTE))
+        _ROUTE_HANDS_PER_DAY[day] = max(
+            (len(_ROUTE[s].get('hands') or []) for s in range(lo, hi)), default=0)
+    return _ROUTE_HANDS_PER_DAY[day]
+
+
+def _melon_patch(action, obs, step):
+    if not MELON_PATCH:
+        return action
+    day = step // 24
+    if day > MELON_PATCH_HARVEST_DAY + 2:
+        return action
+
+    seat = _player(obs)
+    farm = _farm_view(obs, seat)
+    hands = list(_value(farm, 'hands', []) or [])
+    routed = _routed_hands(step)
+    private = _value(obs, 'private', {}) or {}
+    action = _copy_plan(action)
+    market = [list(o) for o in action.get('market') or []]
+
+    # Keep exactly one hand more than the recording addresses.
+    if len(hands) <= routed and len(market) < 10:
+        market.append(['HIRE'])
+
+    # The recording sells melon on day 10 and then not again until day 20, by
+    # which point the market is dead. The patch ripens on day 11, so without
+    # this its fruit would sit in the shed for nine days and fetch $1.
+    if day >= MELON_PATCH_HARVEST_DAY:
+        private_shed = _value(private, 'shed', {}) or {}
+        held = max(0, int(_value(private_shed, 'MELON', 0) or 0))
+        if held > 0 and not any(
+                len(o) >= 3 and o[0] == 'SELL' and o[1] == 'MELON' for o in market):
+            if len(market) < 10:
+                market.append(['SELL', 'MELON', held])
+    action['market'] = market[:10]
+
+    plan = [list(h or ['PASS']) for h in (action.get('hands') or [])]
+    while len(plan) < len(hands):
+        plan.append(['PASS'])
+    for idx in range(routed, len(hands)):
+        # private.inventories is [farmer, *hands], so hand i is at i + 1.
+        order = _patch_job(farm, private, idx + 1, hands[idx], day)
+        if order:
+            plan[idx] = order
+    action['hands'] = plan
+    return action
+
 #
 # The town's eight shops are drawn per episode WITH REPLACEMENT, so how much
 # wool and milk the town eats is a per-game fact -- and it is handed to the
@@ -659,6 +818,11 @@ def _retarget_pasture(action, obs, step):
     return action
 
 
+# Applied here, not next to its definition: the edits read MELON_PATCH and
+# CARROT_SWAP, which are declared by layers further down the file.
+_apply_route_edits()
+
+
 def agent(obs):
     try:
         _apply_route_edits()
@@ -669,6 +833,7 @@ def agent(obs):
         action = _advance_sale(action, obs, state, step)
         action = _final_drop_cash(obs, action, step)
         action = _retarget_pasture(action, obs, step)
+        action = _melon_patch(action, obs, step)
         action = _eager_sell(action, obs, step)
         return _match_hands(action, obs)
     except Exception:
