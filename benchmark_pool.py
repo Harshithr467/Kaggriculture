@@ -153,6 +153,13 @@ def apply_override(module, path, value):
 
 def _run_one(job):
     label, cand_ref, override, opp_ref, seed, seat = job
+    # Common random numbers for the town. Without it the agents' own actions
+    # move the RNG stream the shop draw reads from, so two variants on one seed
+    # play different economies and their scores are not comparable. See
+    # fixed_town.py. Off by default; set KAGG_FIXED_TOWN=1 to compare variants.
+    if os.environ.get("KAGG_FIXED_TOWN") == "1":
+        import fixed_town
+        fixed_town.enable()
     from benchmark_ab import play
     cand = _get_agent(cand_ref)
     # Always start from the module as loaded. Without this a job inherits every

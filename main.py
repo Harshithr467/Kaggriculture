@@ -232,6 +232,70 @@ SPAWN_QUADRANTS = ["NW", "NE", "SW", "SE"]
 TRAVEL_DIVISOR = 16.6979
 OUT_OF_ZONE_FACTOR = 0.4
 STICKY_FACTOR = 1.55
+
+# ---------------------------------------------------------------- worker roles
+# Measured on the public route, which beats this agent by $36k a game: its hands
+# are specialists. The farmer and hands 0 and 3 do 185, 156 and 125 CARE with
+# almost no watering; hands 1, 2, 5 and 6 water 169/118/... and FEED exactly
+# zero times all season. Ours are all generalists -- worker 0 does WATER 196 /
+# FEED 127 / HARVEST 93, worker 11 does WATER 137 / HARVEST 54 / FEED 28 -- so
+# every hand criss-crosses between the pastures and the fields all day.
+#
+# assign_jobs scores value/(1 + TRAVEL_DIVISOR*distance) fresh every turn, so
+# nothing holds a worker to one kind of work; OUT_OF_ZONE_FACTOR is spatial, not
+# functional, and a hand standing between a thirsty crop and a hungry cow takes
+# whichever is worth more this instant.
+#
+# A role is fixed for the whole day and biases the value of off-role work.
+#
+# MEASURED, AND IT DOES ALMOST NOTHING. With the town held fixed (see
+# fixed_town.py) across 32 games against the route:
+#
+#     1.0 (off)   2/32 wins   gap -36,113
+#     0.6         2/32 wins   gap -35,698   +$415
+#     0.35        2/32 wins   gap -36,782   -$669
+#
+# $415 against a $36,113 gap. It first appeared to be worth +$8,399 a game, and
+# every dollar of that was the town: our own actions move the RNG stream the
+# shop draw reads from, so changing this constant changed which shops opened.
+# Same seed, roles off: YARN_STOREx2. Roles on: no yarn store, three smoothie
+# shops. Different economies, not a better farm.
+#
+# So generalist hands are not what costs us $36k a game. Left wired and off.
+# 1.0 disables it exactly and is the A/B control.
+ROLE_MISMATCH_FACTOR = 1.0
+RANCH_SHARE = 0.35            # of the roster kept on animals
+
+# HARVEST belongs to whichever kind of tile it stands on, so it is classified
+# from the board rather than listed here.
+RANCH_OPS = frozenset(("CARE", "FEED", "COLLECT_FERTILIZER", "PLACE"))
+FIELD_OPS = frozenset(("WATER", "PLANT", "FERTILIZE", "DIG",
+                       "BUILD_PASTURE", "BUILD_COOP"))
+
+
+def job_role(job, tiles):
+    op = job["action"][0]
+    if op in RANCH_OPS:
+        return "RANCH"
+    if op in FIELD_OPS:
+        return "FIELD"
+    if op == "HARVEST":
+        try:
+            x, y = job["pos"]
+            tile = tiles[y][x]
+        except (IndexError, TypeError, ValueError):
+            return None
+        if isinstance(tile, dict) and "animal" in tile:
+            return "RANCH"
+        return "FIELD"
+    return None            # hauling and market runs are nobody's speciality
+
+
+def worker_roles(count):
+    """Stable split by index. The farmer is index 0 and keeps the animals, which
+    is what the route does and what the spawn order already favours."""
+    ranch = max(1, int(round(count * RANCH_SHARE))) if count > 1 else 0
+    return ["RANCH" if i < ranch else "FIELD" for i in range(count)]
 PRESSURE_SCALE = {"WHEAT": 12.0, "CARROT": 10.0, "TOMATO": 8.0, "STRAWBERRY": 6.0, "MELON": 5.0}
 GLUT_SENSITIVITY = {"WHEAT": 0.15, "CARROT": 0.30, "TOMATO": 0.55, "STRAWBERRY": 0.95, "MELON": 1.15}
 ENDGAME_DAYS = {"WHEAT": 2, "CARROT": 2, "TOMATO": 4, "STRAWBERRY": 5, "MELON": 6}
@@ -1552,6 +1616,20 @@ def assign_jobs(obs, me, private, jobs):
             return preferred
         return unlocked_order[worker_index % len(unlocked_order)]
 
+    roles = worker_roles(len(workers))
+
+    def role_factor(worker_index, job):
+        if ROLE_MISMATCH_FACTOR >= 1.0:
+            return 1.0
+        role = job_role(job, me["tiles"])
+        if role is None or role == roles[worker_index]:
+            return 1.0
+        # A starving animal or a dying plant is worth breaking role for; routine
+        # upkeep is not. Same threshold the zone rule uses.
+        if job["value"] >= 1400:
+            return 1.0
+        return ROLE_MISMATCH_FACTOR
+
     def zone_factor(worker_index, job):
         if len(unlocked_order) <= 1:
             return 1.0
@@ -1569,7 +1647,8 @@ def assign_jobs(obs, me, private, jobs):
             distance = route_distance(worker_index, job)
             if distance is None:
                 continue
-            value = job["value"] * zone_factor(worker_index, job)
+            value = (job["value"] * zone_factor(worker_index, job)
+                     * role_factor(worker_index, job))
             if previous.get(worker_index) == key_for(job):
                 value *= STICKY_FACTOR
             # Value per turn spent, not value minus travel: a job twice as far
