@@ -470,6 +470,7 @@ _EDITS_APPLIED = None
 # ----------------------------------------------------------------------------
 CARROT_SWAP = ((629, 9), (633, 7), (633, 10), (633, 11), (634, 9), (635, 6), (638, 10), (639, 5), (639, 9), (641, 0), (641, 6), (645, 5), (645, 10))
 CARROT_SEED_STEP = 600
+CARROT_PRICE_GATE = None
 
 
 def _swap_carrot():
@@ -486,6 +487,10 @@ def _swap_carrot():
         if unit and len(unit) >= 2 and unit[0] == 'PLANT' and unit[1] == 'WHEAT':
             unit[1] = 'CARROT'
             planted += 1
+    # With the price gate on, the seed is bought at day 26 instead, only if the
+    # market says carrot is the better crop.
+    if CARROT_PRICE_GATE is not None:
+        return
     if planted and 0 <= CARROT_SEED_STEP < len(_ROUTE):
         market = _ROUTE[CARROT_SEED_STEP].setdefault('market', [])
         if len(market) < 10:
@@ -555,7 +560,8 @@ def _apply_route_edits():
     """Rebuild _ROUTE from the published recording under the current edits."""
     global _ROUTE, _EDITS_APPLIED
     key = (tuple(sorted(HERD_SWAP.items())), tuple(CARROT_SWAP), CARROT_SEED_STEP,
-           tuple(MELON_PATCH), MELON_PATCH_SHEEP_CUT, DAY0_COW_SWAP)
+           tuple(MELON_PATCH), MELON_PATCH_SHEEP_CUT, DAY0_COW_SWAP,
+           CARROT_PRICE_GATE)
     if _EDITS_APPLIED == key:
         return
     _EDITS_APPLIED = key
@@ -699,6 +705,45 @@ def _routed_hands(step):
         _ROUTE_HANDS_PER_DAY[day] = max(
             (len(_ROUTE[s].get('hands') or []) for s in range(lo, hi)), default=0)
     return _ROUTE_HANDS_PER_DAY[day]
+
+
+_CARROT_CHOICE = {0: None, 1: None}
+# Day 26 hour 0. Unit actions resolve before the market each turn, so seed bought
+# here is in hand from the next step, and the first swapped planting is at 629.
+CARROT_DECIDE_STEP = 624
+
+
+def _carrot_or_wheat(action, obs, step):
+    """Pick the crop for the 13 dead slots from the day-26 market."""
+    if CARROT_PRICE_GATE is None or not CARROT_SWAP:
+        return action
+    seat = _player(obs)
+    if step == 0:
+        _CARROT_CHOICE[seat] = None
+
+    action = _copy_plan(action)
+    prices = _value(_value(obs, 'market', {}) or {}, 'prices', {}) or {}
+
+    if step == CARROT_DECIDE_STEP:
+        carrot = float(_value(prices, 'CARROT', 0) or 0)
+        wheat = float(_value(prices, 'WHEAT', 1) or 1)
+        _CARROT_CHOICE[seat] = carrot > wheat * CARROT_PRICE_GATE
+        if _CARROT_CHOICE[seat]:
+            market = [list(o) for o in action.get('market') or []]
+            if len(market) < 10:
+                market.append(['BUY_SEED', 'CARROT', len(CARROT_SWAP)])
+                action['market'] = market[:10]
+
+    if _CARROT_CHOICE[seat] is False:
+        # Put the route's own wheat back. Its wheat seed budget already covered
+        # these tiles, so nothing else is starved by the swap.
+        hands = action.get('hands') or []
+        for swap_step, hand in CARROT_SWAP:
+            if swap_step == step and 0 <= hand < len(hands):
+                unit = hands[hand]
+                if unit and len(unit) >= 2 and unit[0] == 'PLANT' and unit[1] == 'CARROT':
+                    unit[1] = 'WHEAT'
+    return action
 
 
 def _melon_patch(action, obs, step):
@@ -886,6 +931,7 @@ def agent(obs):
         action = _advance_sale(action, obs, state, step)
         action = _final_drop_cash(obs, action, step)
         action = _retarget_pasture(action, obs, step)
+        action = _carrot_or_wheat(action, obs, step)
         action = _melon_patch(action, obs, step)
         action = _eager_sell(action, obs, step)
         return _match_hands(action, obs)
