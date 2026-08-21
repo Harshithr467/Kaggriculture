@@ -161,6 +161,29 @@ What can and cannot be combined, measured rather than assumed:
   strawberry displaced to land we never buy. Copying one piece of a plan into a
   plan built on different assumptions costs more than it gains.
 
+* EVERY SETTING HERE RE-VALIDATED on 226 current-meta episodes with the town
+  pinned to each game's recorded shop draw (bench_losses.py --since 94249446).
+  The earlier numbers came from the first 138 episodes -- a submission's
+  climbing phase, 72.4% against opponents it no longer meets -- with the town
+  free to drift. Net wins against the shipped configuration:
+
+      CARROT_SWAP on            +12   (15 gained, 3 lost)
+      EAGER_FLOOR_FRAC off      -51   so the seller is worth +51
+      PASTURE_TILT on            -2
+      MELON_PATCH on            -99
+      HERD_SWAP to geese       -105   (0W-226L, -$44,912 a game)
+
+  LOOKAHEAD was re-checked on the LIVE pool instead, since a frozen opponent
+  cannot judge preemption: 3 scores 96.9%, against 87.5% at 2 and 90.6% at both
+  4 and 5. A real peak, worse in both directions.
+
+* WHY SMALL GAINS ARE WORTH SO MUCH HERE. The field is clones of one recording,
+  so the games are desperately tight: median margin $2,756, 39% of games decided
+  by under $2,000, 17% by under $1,000. That is why selling ~36 carrots -- worth
+  about $1,800 a game -- swings 51 wins in 226. It also says what to look for:
+  a change does not need to be large, it needs to be RELIABLE and additive.
+  Closing the $36k production gap to the route was never the task.
+
 * NO_BUY_LAST_DAYS has no home either: the route's only late purchases are
   HIRE orders on step 696, and hands are re-hired daily and cost a few dollars,
   so gating them buys nothing.
