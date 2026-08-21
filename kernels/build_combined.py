@@ -270,7 +270,18 @@ CARROT_SEED_STEP_VALUE = 600
 # None keeps the fixed carrot choice and is the A/B control. A float is the
 # ratio carrot must beat wheat by before it is worth the $20 seed over wheat's
 # $10.
-CARROT_PRICE_GATE_VALUE = None
+#
+# MEASURED on 226 current-meta games with the town pinned:
+#
+#     None (always carrot)  105W-121L   3 wins given back   +$482 a game
+#     1.0                   108W-118L   0 given back        +$587   net +3 wins
+#     1.2                   107W-119L   0 given back        +$547   net +2 wins
+#
+# 3 gained and 0 lost: it never plants the worse crop, which is the whole point.
+# The first town-adaptive thing on this agent that works, and it works because
+# it adapts something the recording leaves free -- the crop in a slot it was
+# going to visit anyway -- rather than something welded to it.
+CARROT_PRICE_GATE_VALUE = 1.0
 
 # Tiles borrowed for an early melon patch, and when to lift it.
 #
