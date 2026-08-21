@@ -737,9 +737,19 @@ def _melon_patch(action, obs, step):
 # losing trade. 0.6, 1.0 and 1.6 all decide identically -- the wool/milk call is
 # never close -- so this is the change itself failing, not the threshold.
 #
-# Left in, wired up and measured rather than deleted, because it is the correct
-# response to a sheep-heavy FIELD and the wrong response to a clone. If the
-# leaderboard fills with Jince-like builds that contest wool, it becomes right.
+# The "it is right against a sheep-heavy FIELD" defence is now falsified too.
+# Replayed against all 138 live episodes with the real opponents' recorded
+# actions (bench_losses.py --all):
+#
+#     PASTURE_TILT None   103W-35L   +$1,074 a game
+#     PASTURE_TILT 1.0     96W-42L   +$2,945 a game
+#     versus control: 0 gained, 7 lost, net -7 wins
+#
+# It gains nothing anywhere -- not even in the wool-heavy games it was built
+# for, where it makes money without turning it into wins -- and gives back seven.
+# So gating it on the opponent's fork cannot save it: there is nothing to gate
+# ON. Almost three times the money and seven fewer wins is the exact trade a
+# win-rate ladder punishes. Kept only as a worked example of that trap.
 # ----------------------------------------------------------------------------
 PASTURE_TILT = None
 
