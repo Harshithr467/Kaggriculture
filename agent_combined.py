@@ -492,6 +492,44 @@ def _swap_carrot():
             market.append(['BUY_SEED', 'CARROT', planted])
 
 
+def _add_day0_order(order):
+    """Put an order in the first day-0 step with room under the ten-order cap."""
+    for step in range(1, 24):
+        market = _ROUTE[step].setdefault('market', [])
+        if len(market) < 10:
+            market.append(list(order))
+            return True
+    return False
+
+
+def _swap_day0_herd():
+    """Buy some of the day-0 sheep as cows instead, in the recording itself."""
+    if not DAY0_COW_SWAP:
+        return
+    left = DAY0_COW_SWAP
+    for trace in _ROUTE[:24]:
+        for order in trace.get('market') or []:
+            if (len(order) >= 3 and order[0] == 'BUY_ANIMAL'
+                    and order[1] == 'SHEEP' and left > 0):
+                take = min(left, int(order[2]))
+                order[2] = int(order[2]) - take
+                left -= take
+                if order[2] <= 0:
+                    order[1] = 'COW'
+                    order[2] = take
+                else:
+                    # Not trace['market'].append: step 0 already carries exactly
+                    # ten orders and maxMarketOrdersPerTurn is ten, so an
+                    # eleventh is SILENTLY DROPPED. That turned a 2-for-2 swap
+                    # into "buy two fewer sheep and nothing else" -- a smaller
+                    # herd, and a $17k loss a game that looked economic.
+                    _add_day0_order(['BUY_ANIMAL', 'COW', take])
+                break
+    # PICKUP and PLACE are corrected to whatever we actually hold at runtime, so
+    # the animals still reach their pastures. Both live on a PASTURE, so nothing
+    # can be stranded on the wrong building.
+
+
 def _swap_melon_seed():
     """Pay for the patch out of the day-0 herd, in the recording itself."""
     if not MELON_PATCH or not MELON_PATCH_SHEEP_CUT:
@@ -517,12 +555,13 @@ def _apply_route_edits():
     """Rebuild _ROUTE from the published recording under the current edits."""
     global _ROUTE, _EDITS_APPLIED
     key = (tuple(sorted(HERD_SWAP.items())), tuple(CARROT_SWAP), CARROT_SEED_STEP,
-           tuple(MELON_PATCH), MELON_PATCH_SHEEP_CUT)
+           tuple(MELON_PATCH), MELON_PATCH_SHEEP_CUT, DAY0_COW_SWAP)
     if _EDITS_APPLIED == key:
         return
     _EDITS_APPLIED = key
     _ROUTE = copy.deepcopy(_ROUTE_STOCK)
     _swap_carrot()
+    _swap_day0_herd()
     _swap_melon_seed()
     _swap_herd()
 
@@ -752,6 +791,7 @@ def _melon_patch(action, obs, step):
 # win-rate ladder punishes. Kept only as a worked example of that trap.
 # ----------------------------------------------------------------------------
 PASTURE_TILT = None
+DAY0_COW_SWAP = 0
 
 # Day 0 buys 4 sheep and a cow before a single shop has opened, so there is
 # nothing to react to; the first shop unlocks on day 3. Everything the route
@@ -781,7 +821,10 @@ def _preferred_pasture(obs):
 
 
 def _retarget_pasture(action, obs, step):
-    if PASTURE_TILT is None:
+    # NOTE: the PICKUP/PLACE correction below runs even when PASTURE_TILT is off,
+    # because DAY0_COW_SWAP also changes what we hold and the recording still
+    # says PICKUP SHEEP. Only the BUY decision is gated on the tilt.
+    if PASTURE_TILT is None and not DAY0_COW_SWAP:
         return action
 
     seat = _player(obs)
@@ -791,7 +834,7 @@ def _retarget_pasture(action, obs, step):
     inventories = list(_value(private, 'inventories', []) or [])
     action = _copy_plan(action)
 
-    if step >= PASTURE_DECIDE_STEP:
+    if PASTURE_TILT is not None and step >= PASTURE_DECIDE_STEP:
         want = _preferred_pasture(obs)
         money = float(_value(farm, 'money', 0) or 0)
         for order in action.get('market') or []:

@@ -184,6 +184,25 @@ What can and cannot be combined, measured rather than assumed:
   a change does not need to be large, it needs to be RELIABLE and additive.
   Closing the $36k production gap to the route was never the task.
 
+* THE RULE, after five structural attempts. Changes to what the route BUYS or
+  OWNS all fail, because the recording holds exactly the choreography for
+  exactly the assets it expects and has no spare turns to service anything else:
+
+      melon patch (3 tiles)        -99 wins
+      goose herd                  -105 wins
+      lifted rank-2 route          6/16, -$12k a game
+      pasture tilt                  -2 wins
+      day-0 cow swap              -42k a game against rank 1
+
+  Changes that ADD output inside slots the route already visits both work:
+
+      carrot in the 13 dead slots  +12 wins
+      selling carrot/tomato/egg    +51 wins
+
+  So the search space is not "what should the farm own" -- that is welded to the
+  recording -- it is "what else can be grown or sold with the turns already
+  being spent". TOMATO and EGG are still untouched by the whole field.
+
 * NO_BUY_LAST_DAYS has no home either: the route's only late purchases are
   HIRE orders on step 696, and hands are re-hired daily and cost a few dollars,
   so gating them buys nothing.
@@ -196,6 +215,34 @@ LOOKAHEAD_VALUE = 3
 EAGER_FLOOR_FRAC_VALUE = 0.30
 HERD_SWAP_VALUE = {}
 PASTURE_TILT_VALUE = None
+
+# How many of the four sheep the route buys on day 0 to buy as cows instead.
+#
+# The rank-1 agent (Ryo Hasegawa, 3151.8) runs 12 cows and 2 sheep; the route
+# runs 8 and 4. Played against his recording on his own seed we lose by $2,522,
+# and the ledger says we out-earn him on strawberry, melon, wheat, fertilizer
+# AND wool -- our whole deficit is MILK (-$6,750, his 269 units to our 215) plus
+# $2,380 of extra spending. PASTURE_TILT cannot reach this: it only acts from
+# day 3, and these sheep are bought blind on day 0 before a single shop opens.
+# A cow is also $100 cheaper than a sheep.
+#
+# IT DOES NOT WORK, and the reason is the same one that killed the melon patch,
+# the goose herd and the lifted route. Swapping one sheep for one cow ends the
+# season with 3 sheep, 5 cows and FIVE EMPTY PASTURES against the baseline's 4
+# and 8 with none. The recording carries exactly the PICKUP and PLACE actions
+# for exactly the animals it expects: cows bought outside that schedule sit in
+# the shed with nobody sent to fetch them, and a missing sheep makes a PLACE
+# fail and leaves the pasture bare for the rest of the game.
+#
+#     swap 0   -2,522 against rank 1
+#     swap 1  -44,993
+#     swap 2  -39,465
+#     swap 4  -82,846
+#
+# (A first version looked even worse because step 0 already carries exactly ten
+# orders and maxMarketOrdersPerTurn is ten, so the added purchase was silently
+# dropped -- worth remembering before adding any day-0 order.)
+DAY0_COW_SWAP_VALUE = 0
 
 # (route step, hand index) of every WHEAT planting the route harvests at age 3
 # rather than its usual age 4 -- the end-of-season batch, planted day 26 and
@@ -474,6 +521,44 @@ def _swap_carrot():
             market.append(['BUY_SEED', 'CARROT', planted])
 
 
+def _add_day0_order(order):
+    """Put an order in the first day-0 step with room under the ten-order cap."""
+    for step in range(1, 24):
+        market = _ROUTE[step].setdefault('market', [])
+        if len(market) < 10:
+            market.append(list(order))
+            return True
+    return False
+
+
+def _swap_day0_herd():
+    """Buy some of the day-0 sheep as cows instead, in the recording itself."""
+    if not DAY0_COW_SWAP:
+        return
+    left = DAY0_COW_SWAP
+    for trace in _ROUTE[:24]:
+        for order in trace.get('market') or []:
+            if (len(order) >= 3 and order[0] == 'BUY_ANIMAL'
+                    and order[1] == 'SHEEP' and left > 0):
+                take = min(left, int(order[2]))
+                order[2] = int(order[2]) - take
+                left -= take
+                if order[2] <= 0:
+                    order[1] = 'COW'
+                    order[2] = take
+                else:
+                    # Not trace['market'].append: step 0 already carries exactly
+                    # ten orders and maxMarketOrdersPerTurn is ten, so an
+                    # eleventh is SILENTLY DROPPED. That turned a 2-for-2 swap
+                    # into "buy two fewer sheep and nothing else" -- a smaller
+                    # herd, and a $17k loss a game that looked economic.
+                    _add_day0_order(['BUY_ANIMAL', 'COW', take])
+                break
+    # PICKUP and PLACE are corrected to whatever we actually hold at runtime, so
+    # the animals still reach their pastures. Both live on a PASTURE, so nothing
+    # can be stranded on the wrong building.
+
+
 def _swap_melon_seed():
     """Pay for the patch out of the day-0 herd, in the recording itself."""
     if not MELON_PATCH or not MELON_PATCH_SHEEP_CUT:
@@ -499,12 +584,13 @@ def _apply_route_edits():
     """Rebuild _ROUTE from the published recording under the current edits."""
     global _ROUTE, _EDITS_APPLIED
     key = (tuple(sorted(HERD_SWAP.items())), tuple(CARROT_SWAP), CARROT_SEED_STEP,
-           tuple(MELON_PATCH), MELON_PATCH_SHEEP_CUT)
+           tuple(MELON_PATCH), MELON_PATCH_SHEEP_CUT, DAY0_COW_SWAP)
     if _EDITS_APPLIED == key:
         return
     _EDITS_APPLIED = key
     _ROUTE = copy.deepcopy(_ROUTE_STOCK)
     _swap_carrot()
+    _swap_day0_herd()
     _swap_melon_seed()
     _swap_herd()
 
@@ -734,6 +820,7 @@ def _melon_patch(action, obs, step):
 # win-rate ladder punishes. Kept only as a worked example of that trap.
 # ----------------------------------------------------------------------------
 PASTURE_TILT = {PASTURE_TILT_VALUE!r}
+DAY0_COW_SWAP = {DAY0_COW_SWAP_VALUE}
 
 # Day 0 buys 4 sheep and a cow before a single shop has opened, so there is
 # nothing to react to; the first shop unlocks on day 3. Everything the route
@@ -763,7 +850,10 @@ def _preferred_pasture(obs):
 
 
 def _retarget_pasture(action, obs, step):
-    if PASTURE_TILT is None:
+    # NOTE: the PICKUP/PLACE correction below runs even when PASTURE_TILT is off,
+    # because DAY0_COW_SWAP also changes what we hold and the recording still
+    # says PICKUP SHEEP. Only the BUY decision is gated on the tilt.
+    if PASTURE_TILT is None and not DAY0_COW_SWAP:
         return action
 
     seat = _player(obs)
@@ -773,7 +863,7 @@ def _retarget_pasture(action, obs, step):
     inventories = list(_value(private, 'inventories', []) or [])
     action = _copy_plan(action)
 
-    if step >= PASTURE_DECIDE_STEP:
+    if PASTURE_TILT is not None and step >= PASTURE_DECIDE_STEP:
         want = _preferred_pasture(obs)
         money = float(_value(farm, 'money', 0) or 0)
         for order in action.get('market') or []:
