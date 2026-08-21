@@ -471,6 +471,7 @@ _EDITS_APPLIED = None
 CARROT_SWAP = ((629, 9), (633, 7), (633, 10), (633, 11), (634, 9), (635, 6), (638, 10), (639, 5), (639, 9), (641, 0), (641, 6), (645, 5), (645, 10))
 CARROT_SEED_STEP = 600
 CARROT_PRICE_GATE = 1.0
+FEED_BUY_CEILING = None
 
 
 def _swap_carrot():
@@ -713,6 +714,37 @@ _CARROT_CHOICE = {0: None, 1: None}
 CARROT_DECIDE_STEP = 624
 
 
+def _cap_feed_buying(action, obs, step):
+    """Trim scheduled wheat purchases to what the shed actually still needs.
+
+    Only ever reduces a BUY, never a FEED, so the herd cannot be starved by
+    this: it stops at the ceiling, and the ceiling is several days of eating.
+    """
+    if FEED_BUY_CEILING is None:
+        return action
+    private = _value(obs, 'private', {}) or {}
+    shed = _value(private, 'shed', {}) or {}
+    held = max(0, int(_value(shed, 'WHEAT', 0) or 0))
+    room = FEED_BUY_CEILING - held
+    if room >= 10 ** 6:
+        return action
+
+    action = _copy_plan(action)
+    market = []
+    for raw in action.get('market') or []:
+        order = list(raw)
+        if len(order) >= 3 and order[0] == 'BUY_PRODUCT' and order[1] == 'WHEAT':
+            want = max(0, int(order[2]))
+            take = max(0, min(want, room))
+            room -= take
+            if take <= 0:
+                continue
+            order[2] = take
+        market.append(order)
+    action['market'] = market[:10]
+    return action
+
+
 def _carrot_or_wheat(action, obs, step):
     """Pick the crop for the 13 dead slots from the day-26 market."""
     if CARROT_PRICE_GATE is None or not CARROT_SWAP:
@@ -931,6 +963,7 @@ def agent(obs):
         action = _advance_sale(action, obs, state, step)
         action = _final_drop_cash(obs, action, step)
         action = _retarget_pasture(action, obs, step)
+        action = _cap_feed_buying(action, obs, step)
         action = _carrot_or_wheat(action, obs, step)
         action = _melon_patch(action, obs, step)
         action = _eager_sell(action, obs, step)

@@ -209,6 +209,7 @@ What can and cannot be combined, measured rather than assumed:
 """
 import io
 import os
+import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOOKAHEAD_VALUE = 3
@@ -282,6 +283,36 @@ CARROT_SEED_STEP_VALUE = 600
 # it adapts something the recording leaves free -- the crop in a slot it was
 # going to visit anyway -- rather than something welded to it.
 CARROT_PRICE_GATE_VALUE = 1.0
+
+# Stop buying feed wheat once the shed already holds this much.
+#
+# The route buys wheat on a fixed schedule with no idea what is already in the
+# shed. Measured over 8 current-meta games: 99 purchase orders a game, median
+# shed level at the moment of purchase 16, and HALF of them issued while already
+# holding 15 or more. The herd eats about 10 a day. The shed sits on 39-57 wheat
+# through the back half of the season while we keep buying at $37 a unit --
+# $6,773 a game -- and sell our own at $35.8. A losing round trip on our own crop.
+#
+# IT IS NOT WASTE, AND THE ARITHMETIC ABOVE IS WRONG. Measured on 226 games:
+#
+#     None    108W-118L   +$587 a game
+#     30       64W-162L   -$1,424    net -44 wins
+#     20       59W-167L   -$1,887    net -49 wins
+#     12        3W-223L  -$16,783    net -105 wins
+#
+# The shed's wheat has TWO consumers, not one. The herd eats ~10 a day, but the
+# recording also SELLS wheat from that same shed on its own schedule, and those
+# sales drain the buffer far faster than feeding does. Sizing the ceiling
+# against feed alone starves the animals: at 12 the herd escapes outright.
+#
+# So the buy-at-$37/sell-at-$36 spread is not a losing round trip, it is the
+# price of a timing mismatch -- wheat is harvested and sold when it ripens and
+# eaten steadily all season -- and it is far cheaper than the alternative. This
+# file already warned that shed wheat is the herd's dinner; the warning was
+# written about selling it and applies just as well to not buying it.
+#
+# None disables it and is the A/B control.
+FEED_BUY_CEILING_VALUE = None
 
 # Tiles borrowed for an early melon patch, and when to lift it.
 #
@@ -525,6 +556,7 @@ _EDITS_APPLIED = None
 CARROT_SWAP = {CARROT_SWAP_VALUE!r}
 CARROT_SEED_STEP = {CARROT_SEED_STEP_VALUE}
 CARROT_PRICE_GATE = {CARROT_PRICE_GATE_VALUE!r}
+FEED_BUY_CEILING = {FEED_BUY_CEILING_VALUE!r}
 
 
 def _swap_carrot():
@@ -767,6 +799,37 @@ _CARROT_CHOICE = {{0: None, 1: None}}
 CARROT_DECIDE_STEP = 624
 
 
+def _cap_feed_buying(action, obs, step):
+    """Trim scheduled wheat purchases to what the shed actually still needs.
+
+    Only ever reduces a BUY, never a FEED, so the herd cannot be starved by
+    this: it stops at the ceiling, and the ceiling is several days of eating.
+    """
+    if FEED_BUY_CEILING is None:
+        return action
+    private = _value(obs, 'private', {{}}) or {{}}
+    shed = _value(private, 'shed', {{}}) or {{}}
+    held = max(0, int(_value(shed, 'WHEAT', 0) or 0))
+    room = FEED_BUY_CEILING - held
+    if room >= 10 ** 6:
+        return action
+
+    action = _copy_plan(action)
+    market = []
+    for raw in action.get('market') or []:
+        order = list(raw)
+        if len(order) >= 3 and order[0] == 'BUY_PRODUCT' and order[1] == 'WHEAT':
+            want = max(0, int(order[2]))
+            take = max(0, min(want, room))
+            room -= take
+            if take <= 0:
+                continue
+            order[2] = take
+        market.append(order)
+    action['market'] = market[:10]
+    return action
+
+
 def _carrot_or_wheat(action, obs, step):
     """Pick the crop for the 13 dead slots from the day-26 market."""
     if CARROT_PRICE_GATE is None or not CARROT_SWAP:
@@ -982,6 +1045,7 @@ combined = combined.replace(anchor, MARKET_LAYER + HERD_LAYER + anchor, 1)
 OLD_CALL = "        action = _final_drop_cash(obs, action, step)"
 NEW_CALL = ("        action = _final_drop_cash(obs, action, step)\n"
             "        action = _retarget_pasture(action, obs, step)\n"
+            "        action = _cap_feed_buying(action, obs, step)\n"
             "        action = _carrot_or_wheat(action, obs, step)\n"
             "        action = _melon_patch(action, obs, step)\n"
             "        action = _eager_sell(action, obs, step)")
@@ -1011,6 +1075,19 @@ header = (
     'See kernels/build_combined.py for what was and was not combined, and why."""\n'
 )
 combined = header + combined.split('"""', 2)[2].lstrip("\n")
+
+# A layer that is defined but never called is invisible: it builds, imports,
+# passes a smoke test, and measures as "no effect". That has happened twice --
+# once for the carrot price gate and once for the feed ceiling, each time
+# because a call-site string patch stopped matching. Check it instead of
+# trusting it.
+_body = combined.split("def agent(obs):", 1)[-1]
+_missing = [name for name in re.findall(r"^def (_[a-z_]+)\(action, obs, step\)",
+                                        combined, re.M)
+            if f"{name}(action, obs, step)" not in _body]
+if _missing:
+    raise SystemExit("these layers are defined but never called from agent(): "
+                     + ", ".join(_missing))
 
 out = os.path.join(os.path.dirname(HERE), "agent_combined.py")
 io.open(out, "w", encoding="utf-8", newline="").write(combined)
