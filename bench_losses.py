@@ -16,7 +16,21 @@ have flipped a game I actually lost, and what would it have cost me elsewhere?
     python bench_losses.py 55563850 --all --sweep LOOKAHEAD 3 4
     python bench_losses.py 55563850 --verify              # is the harness faithful?
 
-USE --all. Sampling only the games we lost is biased: it can show a change
+USE --since, AND USE --all.
+
+A submission enters at 600 and climbs, so its early games are against weak
+opponents. 55563850's first 138 episodes ran at 72.4% and its next 135 at 37.0%
+-- and it got worse against BOTH buckets (91.1% -> 55.9% against non-route
+opponents), so that is matchmaking finding its level, not the field changing.
+The first version of this benchmark was built on those first 138 games and
+measured an agent against opponents it no longer meets.
+
+The town is pinned to each episode's recorded shop draw by default. Without it
+our own actions move the RNG stream the shop unlock reads from, so two variants
+on one episode play different economies -- see fixed_town.py. --verify still
+reproduces the recorded money exactly in 122 of 122 with pinning on.
+
+Sampling only the games we lost is biased: it can show a change
 winning and can never show it giving a win back. PASTURE_TILT looked free on the
 losses alone (+4 flips, +$1,404 a game, nothing given up) and cost seven wins
 once the other 99 games were included.
@@ -112,6 +126,12 @@ def build_cache(submission):
             "rec_mine": d["rewards"][us], "rec_theirs": d["rewards"][1 - us],
             "opponent": names[1 - us],
             "was_loss": d["rewards"][us] < d["rewards"][1 - us],
+            # The town this episode actually drew. Shops unlock on day % 3 up to
+            # 8, so the ordered final list plus that rule reconstructs the town
+            # on any day. Needed because our own actions otherwise move the RNG
+            # stream the shop draw reads from -- see fixed_town.py.
+            "shops": list((steps[-1][0]["observation"].get("town") or {})
+                          .get("unlocked_shops") or []),
         })
         if i % 20 == 0:
             print(f"  cached {i}/{len(paths)}", flush=True)
@@ -122,7 +142,20 @@ def build_cache(submission):
     return cases
 
 
+def episode_id(case):
+    for part in str(case["episode"]).split("-"):
+        if part.isdigit():
+            return int(part)
+    return 0
+
+
 def load_cases(submission, rebuild=False):
+    # Comma-separated ids concatenate, so a benchmark set can span submissions.
+    if "," in str(submission):
+        out = []
+        for one in str(submission).split(","):
+            out += load_cases(one.strip(), rebuild)
+        return out
     path = cache_path(submission)
     if rebuild or not os.path.exists(path):
         return build_cache(submission)
@@ -140,10 +173,40 @@ def _worker_cases(submission):
     return _WORKER_CASES[submission]
 
 
+# ---------------------------------------------------------------- town pinning
+
+def _pin_town(shops):
+    """Force the town to follow one episode's recorded shop draw.
+
+    fixed_town.py gives the shop draw an independent stream, which makes two
+    variants comparable but plays a town neither of them really faced. Here the
+    true schedule is on record, so pin to it: every variant then meets the same
+    town the live game had, and a flip means the change beat that opponent in
+    that economy rather than in a luckier one.
+    """
+    from kaggle_environments.envs.kaggriculture import kaggriculture as K
+    original = K._end_of_day
+
+    def patched(state, env, day):
+        original(state, env, day)
+        town = state[0].observation.town
+        # Unlock count is exactly min(8, day // 3), verified over 120 episodes.
+        want = min(len(shops), min(8, (day + 1) // 3))
+        town["unlocked_shops"] = list(shops[:want])
+
+    K._end_of_day = patched
+    return original
+
+
+def _unpin_town(original):
+    from kaggle_environments.envs.kaggriculture import kaggriculture as K
+    K._end_of_day = original
+
+
 # ---------------------------------------------------------------- one game
 
 def _job(args):
-    label, cand_ref, override, submission, index, verify = args
+    label, cand_ref, override, submission, index, verify, pin = args
     import benchmark_pool as BP
     from replay_ledger import playback
     from kaggle_environments import make
@@ -165,8 +228,13 @@ def _job(args):
     seat = case["seat"]
     agents = [mine_agent, theirs_agent] if seat == 0 else [theirs_agent, mine_agent]
 
-    env = make("kaggriculture", configuration={"seed": case["seed"]}, debug=False)
-    env.run(agents)
+    pinned = _pin_town(case["shops"]) if (pin and case.get("shops")) else None
+    try:
+        env = make("kaggriculture", configuration={"seed": case["seed"]}, debug=False)
+        env.run(agents)
+    finally:
+        if pinned is not None:
+            _unpin_town(pinned)
     farms = env.steps[-1][0].observation["farms"]
     return {
         "label": label, "episode": case["episode"], "opponent": case["opponent"],
@@ -178,8 +246,8 @@ def _job(args):
 
 
 def play(label, cand_ref, override, submission, indices, workers=10,
-         verify=False, progress=True):
-    jobs = [(label, cand_ref, override, submission, i, verify) for i in indices]
+         verify=False, progress=True, pin=True):
+    jobs = [(label, cand_ref, override, submission, i, verify, pin) for i in indices]
     rows = []
     with ProcessPoolExecutor(max_workers=workers) as ex:
         for n, r in enumerate(ex.map(_job, jobs), 1):
@@ -291,13 +359,22 @@ def main():
     ap.add_argument("--all", action="store_true",
                     help="replay every game, not just the losses -- needed to see "
                          "wins a change gives back")
+    ap.add_argument("--since", type=int, default=0,
+                    help="only episodes numbered at or above this, i.e. only the "
+                         "games played once the rating had climbed. The first 138 "
+                         "episodes of 55563850 ran at 72.4%% and the next 135 at "
+                         "37.0%%: early games are against weaker opponents and are "
+                         "not the field we now meet.")
+    ap.add_argument("--no-pin", action="store_true",
+                    help="do not pin the town to each episode's recorded draw")
     ap.add_argument("--rebuild-cache", action="store_true")
     ap.add_argument("--workers", type=int, default=10)
     ap.add_argument("--csv", default=None)
     args = ap.parse_args()
 
     cases = load_cases(args.submission, rebuild=args.rebuild_cache)
-    indices = [i for i, c in enumerate(cases) if args.all or c["was_loss"]]
+    indices = [i for i, c in enumerate(cases)
+               if (args.all or c["was_loss"]) and episode_id(c) >= args.since]
     n_loss = sum(1 for i in indices if cases[i]["was_loss"])
     print(f"{len(indices)} games from {args.submission} ({n_loss} of them losses)")
 
@@ -312,7 +389,8 @@ def main():
     rows = []
     for label, ref, ov in labels:
         rows += play(label, ref, ov, args.submission, indices,
-                     workers=args.workers, verify=args.verify)
+                     workers=args.workers, verify=args.verify,
+                     pin=not args.no_pin)
 
     if args.verify:
         rec = [r for r in rows if r["mine"] < r["theirs"]]
