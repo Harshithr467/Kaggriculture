@@ -79,7 +79,17 @@ sys.path.insert(0, PROJECT)
 
 from benchmark_pool import DEFAULT_POOL, run                       # noqa: E402
 
+# One state file per (space, objective). Sharing one file made a route/replay
+# run print the policy run's constants and seed ranges back at us, because
+# the generation log reads history entries by generation number alone.
 STATE = os.path.join(PROJECT, "kaggle_episode_data", "optimiser_state.json")
+
+
+def state_path(space, objective):
+    if space == "policy" and objective == "pool":
+        return STATE          # the original run, kept where it was
+    return os.path.join(PROJECT, "kaggle_episode_data",
+                        f"optimiser_state_{space}_{objective}.json")
 
 # Margin only ever breaks a tie. With `games` per evaluation the win rate moves
 # in steps of 1/games, so keeping the margin term strictly under that step makes
@@ -107,11 +117,32 @@ HOLDOUT_SEEDS = list(range(500, 530))
 # roughly seventy percent of that axis on a single behaviour, which is why the
 # search happily returned 2.7289 -- a number that does nothing 2.0 would not.
 # Run --check-space before trusting a new dimension.
-SPACE = [
-    ("ANIMAL_MARGIN_BIAS.SHEEP",  0.8,  2.2, False),
-    ("MARGINAL_ACTION_VALUE",    14.0, 60.0, False),
-    ("TRAVEL_DIVISOR",            6.0, 22.0, False),
-]
+# Two search spaces, because there are two agents. "policy" tunes main.py, the
+# hand-written engine these constants were written for. "route" tunes the knobs
+# agent_combined.py actually has -- and there are only two of them, because the
+# route is a RECORDING: its behaviour lives in 720 recorded steps, not in
+# constants. That thinness is the finding, not an oversight. CMA-ES over two
+# dimensions is barely worth the machinery; the search that matters is discrete
+# and over the trace itself.
+# Parameters whose whole effect is how we behave RELATIVE to the opponent. The
+# replay objective freezes the opponent, so it scores these as free money: it
+# rated LOOKAHEAD 5 at +6 net wins where a live opponent has it at -3.1pp, and
+# LOOKAHEAD 7 at +5 where live has it at -12.5pp. Tune them against a pool that
+# can fight back.
+REACTIVE_PARAMS = {"LOOKAHEAD", "EAGER_FLOOR_FRAC"}
+
+SPACES = {
+    "policy": [
+        ("ANIMAL_MARGIN_BIAS.SHEEP",  0.8,  2.2, False),
+        ("MARGINAL_ACTION_VALUE",    14.0, 60.0, False),
+        ("TRAVEL_DIVISOR",            6.0, 22.0, False),
+    ],
+    "route": [
+        ("LOOKAHEAD",          1.0, 8.0, True),
+        ("EAGER_FLOOR_FRAC",   0.0, 1.2, False),
+    ],
+}
+SPACE = SPACES["policy"]
 
 
 def to_overrides(vector):
@@ -129,6 +160,37 @@ def generation_seeds(gen, count):
     start = (gen * count) % len(SEED_BANK)
     doubled = SEED_BANK + SEED_BANK
     return doubled[start:start + count]
+
+
+def evaluate_candidate_replay(vector, generation, agent, submission,
+                              wins_per_eval, workers):
+    """Fitness from the games we actually played, against the agents that played them.
+
+    See bench_losses.py. Fitness is the win rate over a rotating slice of live
+    episodes -- all 39 losses every time plus `wins_per_eval` of the 99 wins --
+    so a candidate is judged on flips gained MINUS wins given back, which is the
+    quantity the ladder pays for. Money is reported and never allowed to outrank
+    a single game.
+
+    Absolute fitness is not comparable between generations, because the slice
+    rotates; within a generation every candidate sees the same episodes. Same
+    trade the seed bank makes, for the same reason.
+    """
+    import bench_losses as BL
+    overrides = to_overrides(vector)
+    indices = BL.fitness_indices(submission, wins_per_eval, generation)
+    r = BL.evaluate(cand_ref=agent, overrides=overrides, submission=submission,
+                    indices=indices, workers=workers)
+    return {
+        "overrides": dict(overrides),
+        "fitness": r["fitness"], "win_rate": r["win_rate"],
+        "games": r["games"], "wins": r["wins"], "losses": r["games"] - r["wins"],
+        "ties": r["ties"], "flipped": r["flipped"], "given_back": r["given_back"],
+        "money_per_game": r["money_per_game"],
+        "ours": 0.0, "theirs": 0.0, "mean_margin": r["money_per_game"],
+        "median_margin": r["money_per_game"], "norm_margin": 0.0,
+        "win_rate_by_opponent": {}, "margin_by_seed": {}, "seeds": [],
+    }
 
 
 def evaluate_candidate(vector, seeds, pool, workers):
@@ -337,6 +399,18 @@ def check_all(pool, seeds, workers):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--objective", choices=("pool", "replay"), default="pool",
+                    help="'pool' plays fresh seeds against our own history; "
+                         "'replay' re-plays the live episodes against the agents "
+                         "that actually played them")
+    ap.add_argument("--space", choices=tuple(SPACES), default="policy")
+    ap.add_argument("--agent", default=None,
+                    help="module to tune (file or git ref); default main.py")
+    ap.add_argument("--submission", default="55563850",
+                    help="replay objective: which submission's episodes to use")
+    ap.add_argument("--wins-per-eval", type=int, default=30,
+                    help="replay objective: wins sampled per evaluation, on top "
+                         "of all 39 losses")
     ap.add_argument("--budget", type=int, default=35, help="evaluations")
     ap.add_argument("--seeds-per-eval", type=int, default=10)
     ap.add_argument("--holdout", nargs="*", type=int, default=HOLDOUT_SEEDS[:12])
@@ -351,6 +425,19 @@ def main():
     ap.add_argument("--check-all", action="store_true",
                     help="probe every tunable constant in main.py for dead range")
     args = ap.parse_args()
+    globals()["SPACE"] = SPACES[args.space]
+    globals()["STATE"] = state_path(args.space, args.objective)
+    if args.objective == "replay":
+        bad = sorted(REACTIVE_PARAMS.intersection(p for p, *_ in SPACE))
+        if bad:
+            raise SystemExit(
+                f"{', '.join(bad)} govern how we act relative to the opponent, and "
+                f"the replay objective freezes the opponent, so it scores them as "
+                f"free money (it rated LOOKAHEAD 5 at +6 net wins; live it is "
+                f"-3.1pp). Tune these with --objective pool.")
+    if args.objective == "replay" and args.space == "policy":
+        raise SystemExit("--objective replay tunes the route agent; pass "
+                         "--space route --agent agent_combined.py")
 
     if args.check_all:
         check_all(args.pool[:2], [600, 601], args.workers)
@@ -383,7 +470,11 @@ def main():
                 print(f"    {names[a]:>8} vs {names[b]:>8}: {d}/{len(keys)} games differ{flag}")
         return
 
-    import main as agent
+    if args.agent:
+        import benchmark_pool as _bp
+        agent = _bp._get_agent(args.agent)
+    else:
+        import main as agent
     defaults = []
     for path, _lo, _hi, _ai in SPACE:
         name, _, key = path.partition(".")
@@ -428,15 +519,28 @@ def main():
         json.dump(state, open(STATE, "w", encoding="utf-8"), indent=1)
         return
 
-    games = len(args.pool) * args.seeds_per_eval * 2
+    if args.objective == "replay":
+        import bench_losses as _bl
+        games = len(_bl.fitness_indices(args.submission, args.wins_per_eval, 0))
+    else:
+        games = len(args.pool) * args.seeds_per_eval * 2
     print("space:")
     for (path, lo, hi, _), d in zip(SPACE, defaults):
         print("  %-28s%8.2f   in [%s, %s]" % (path, d, lo, hi))
     print("\nbudget %d evaluations x %d games = %d games"
           % (args.budget, games, args.budget * games))
-    print("objective: win rate (ties 0.5); margin can only break exact ties")
-    print("seeds rotate per generation from a bank of %d; holdout %d-%d never searched"
-          % (len(SEED_BANK), HOLDOUT_SEEDS[0], HOLDOUT_SEEDS[-1]))
+    if args.objective == "replay":
+        print(f"objective: win rate over live episodes from {args.submission}, "
+              f"replayed against the opponents' own recorded actions")
+        print(f"  all 39 losses every evaluation, plus {args.wins_per_eval} of the "
+              f"99 wins, rotating by generation")
+        print("  a flip gained and a win given back count the same, which is the "
+              "point: PASTURE_TILT scored +$2,945 a game and -7 wins")
+    else:
+        print("objective: win rate (ties 0.5); margin can only break exact ties")
+    if args.objective != "replay":
+        print("seeds rotate per generation from a bank of %d; holdout %d-%d never searched"
+              % (len(SEED_BANK), HOLDOUT_SEEDS[0], HOLDOUT_SEEDS[-1]))
     se = math.sqrt(0.25 / games)
     print("standard error per evaluation ~%.1fpp; with %d candidates expect the best"
           % (100 * se, args.budget))
@@ -451,8 +555,12 @@ def main():
 
     def evaluate(xn, gen):
         vec = lo_v + np.clip(xn, 0.0, 1.0) * scale
-        seeds = generation_seeds(gen, args.seeds_per_eval)
-        r = evaluate_candidate(vec, seeds, args.pool, args.workers)
+        if args.objective == "replay":
+            r = evaluate_candidate_replay(vec, gen, args.agent, args.submission,
+                                          args.wins_per_eval, args.workers)
+        else:
+            seeds = generation_seeds(gen, args.seeds_per_eval)
+            r = evaluate_candidate(vec, seeds, args.pool, args.workers)
         r["generation"] = gen
         history.append(r)
         json.dump({"history": history, "generations": generations},
@@ -471,13 +579,20 @@ def main():
                                     if rows else None),
             "seeds": rows[0]["seeds"] if rows else [],
         })
-        print("gen %2d  evals %3d/%d  sigma %.3f  seeds %d-%d"
-              % (gen, used, args.budget, sigma,
-                 rows[0]["seeds"][0], rows[0]["seeds"][-1]), flush=True)
+        # The replay objective has no seeds -- it plays fixed recorded episodes --
+        # so name the sample it did use instead of indexing an empty list.
+        seeds = rows[0]["seeds"] if rows else []
+        sample = (f"seeds {seeds[0]}-{seeds[-1]}" if seeds
+                  else f"{rows[0]['games']} live episodes" if rows else "no games")
+        print("gen %2d  evals %3d/%d  sigma %.3f  %s"
+              % (gen, used, args.budget, sigma, sample), flush=True)
         for h in rows[:2]:
-            print("       win %5.1f%%  (%dW-%dL)  med margin %+8s  %s"
+            extra = ("  flips %+d/-%d" % (h["flipped"], h["given_back"])
+                     if "flipped" in h else "")
+            print("       win %5.1f%%  (%dW-%dL)  med margin %+8s%s  %s"
                   % (100 * h["win_rate"], h["wins"], h["losses"],
-                     format(h["median_margin"], ",.0f"), h["overrides"]), flush=True)
+                     format(h["median_margin"], ",.0f"), extra, h["overrides"]),
+                  flush=True)
 
     lam = 4 + int(3 * math.log(len(SPACE)))
     if args.budget < lam:
