@@ -26,7 +26,43 @@ real, adaptive top-meta opponents instead of frozen replay tapes.
 
 ---
 
-## 1. The finding that matters most: three products have a runaway price
+## 0. The finding that reframes everything: the premium market is worth 1 coin
+
+Reading the notebooks sent me to the price table, and the price table says
+something none of the notebooks state outright. Measured peak market inventory
+across the same 60 live replays (`scarcity_scan.py`, glut side):
+
+| item | glut shape | worst peak inv | price there | % of base |
+| --- | --- | ---: | ---: | ---: |
+| MELON | sq | 10,158 | **1** | **0%** |
+| STRAWBERRY | linear | 10,063 | **1** | **1%** |
+| MILK | linear | 10,077 | **1** | **1%** |
+| WOOL | sq | 10,060 | **1** | **0%** |
+| FERTILIZER | linear | 10,494 | **1** | 1% |
+| EGG | log | 10,026 | 44 | 88% |
+| CARROT | sqrt | 10,020 | 30 | 86% |
+| WHEAT | log | 10,077 | 21 | 84% |
+| TOMATO | sqrt | **10,000** | **60** | **100%** |
+
+The four products the entire top of the leaderboard organises its farm
+around — MELON, MILK, STRAWBERRY, WOOL — reach the engine's `PRICE_FLOOR` of
+**1 coin** in ordinary games. They collapse fast: strawberry needs only 63
+units above equilibrium to hit the floor, wool 59, milk 76, melon 158.
+
+So the entire "8 cows / 6 sheep / premium liquidation" arms race is a race to
+dump into a book that is about to be worthless, and the loser sells at 1. This
+is why every top notebook independently converged on sale *timing*, why their
+gains are measured in tens of coins, and why Rayk's C70 could go 83-5 with a
++14,196 mean margin and still have a flat rating. **Marginal premium production
+is worth approximately nothing.** Our own production matching rank 1
+(137,654 vs 138,170) was never going to move us.
+
+And **TOMATO never gluts at all.** Its peak inventory across 60 replays is
+exactly 10,000 — equilibrium, never exceeded, because essentially nobody grows
+it. It is the only product in the game whose price is uncontested, and its
+scarce side reaches 660 (§1).
+
+## 1. Three products have a runaway price when scarce
 
 The engine's price curve uses a per-product shape on each side of equilibrium.
 Eight of the nine products use `linear`, `sqrt` or `log`, which are tame. Three
@@ -107,6 +143,42 @@ STRAWBERRY and WOOL: if step+1 has a scheduled SELL, the town has no demand
 this turn, and the shed holds free stock, sell it now and subtract exactly that
 quantity from the step+1 order. Total liquidation is unchanged; only timing
 moves.
+
+### What the engine actually does, which neither notebook spells out
+
+`_process_market` walks the two players' market queues **slot by slot in
+lockstep**. For slot `i` it quotes player 0's slot-`i` order and player 1's
+slot-`i` order against the *same* pre-commit inventory, commits both a unit at a
+time, and only then moves to slot `i+1`. Verified directly on an isolated
+market (12 melons each, both players):
+
+```
+p0 slot 0, p1 slot 0   ->   2,980  vs  2,980      tie, exactly
+p0 slot 0, p1 slot 1   ->   2,996  vs  2,962      +34 to the earlier slot
+p0 slot 0, p1 slot 3   ->   2,996  vs  2,962      +34  (same as slot 1)
+p0 slot 0, p1 slot 9   ->   2,996  vs  2,962      +34  (same again)
+solo sale, no opponent ->   2,996
+```
+
+Three consequences, none of them obvious from the notebooks:
+
+1. **Same slot is a perfect tie.** Both players get the identical pre-commit
+   quote on every unit. Nobody front-runs anybody.
+2. **One slot earlier takes the whole prize.** The earlier seller gets exactly
+   the *solo* price — as if the opponent were not there — and the later seller
+   eats the entire depression. Being 1 slot ahead is worth the same as being 9
+   ahead; the gap size does not matter, only who is first.
+3. **Splitting an order across slots is strictly worse** than one slot
+   (2,973 vs 2,985 for 12 units as 6+6), because the second half sells into the
+   hole the first half dug.
+
+So "front-running" here is not a subtle impact calculation — it is *slot index*.
+This also explains a null result: `impact_scan.py` finds our current agent
+leaves **0 coins** on the table across 35 multi-SELL turns, because every one of
+our SELL lines is a distinct product and permuting non-interacting lines cannot
+change anything. Kaito's impact ranking cannot be earning its 46/50→48/50 from
+own-book impact either. What it does is push the contested product into a lower
+slot index, and that is the whole effect.
 
 Rayk arrived at the same place from the loss side. Of C92's 103 captured live
 games, **11 losses shared the same field hash as the winner** — identical
@@ -196,23 +268,35 @@ structurally cannot do: its opponents are recorded tapes whose market layer
 cannot react, which removes exactly the part we would lose to. Any claim about
 front-running has to be made here, not on the replay benchmark.
 
-**2. Build the exact price model and a real impact score.**
-Use the engine's own `market_price` and the true `hinge`, not a transcription.
-Score a prospective SELL as `qty × (quote_now − quote_after)` computed per unit,
-since the engine reprices per unit inside an order.
+**2. Win the slot race on the four floor-collapsing products.**
+The mechanic is now understood exactly: earlier slot index takes the whole
+prize, same slot is a tie, later slot eats the full depression. So the change is
+blunt — for MELON, MILK, STRAWBERRY and WOOL, occupy the lowest slot index we
+can, and never split one product's sale across two slots. No new liquidation, no
+change to quantities, no change to field work. Leave WHEAT and FERTILIZER
+timing alone; opponents can buy those and Rayk's wheat experiments regressed.
 
-**3. Implement sale reordering, conservation-style.**
-Permute existing SELL slots by impact. Never create, delete or resize an order;
-never touch WHEAT or FERTILIZER timing, which opponents can buy. This is the
-one change both surviving families independently converged on, and the one our
-replay benchmark is explicitly documented as unable to judge.
+**3. Then test the one-turn shift, with debt tracking.**
+If slot ordering alone is not enough, move part of a step+1 premium sale to
+step, and subtract exactly that quantity from step+1 so total liquidation is
+unchanged. This is Deniz's and Rayk's C95 rule and it is strictly stronger than
+slot ordering, because a whole turn earlier beats any slot. Gate it as they do,
+on the town having no demand this turn.
 
-**4. Test the hinge crops as a deliberate scarcity play.**
-Nobody grows tomato; it is `ongoing` with `first_yield_day` 8 and `interval` 1,
-so a few tiles planted early pay every day for the back half of the season into
-a curve that reaches 11× base. The known blocker is that it has no home in the
-current route — which is precisely why this belongs on a branch that is allowed
-to move tiles rather than bolt on another layer.
+**4. Test TOMATO as the uncontested-price play.**
+This is now the most interesting idea on the list rather than a leftover. Tomato
+is the only product in the game that **never gluts** — peak inventory across 60
+replays is exactly equilibrium — while its `hinge` scarce side reaches 660, 11×
+base. It is `ongoing` with `first_yield_day` 8 and `interval` 1, so tiles
+planted early pay every day for the back half of the season, into a price nobody
+is competing for. Contrast with milk and wool, which we fight over and sell at 1.
+The blocker is that it has no home in the current route, which is exactly why it
+belongs on a branch allowed to move tiles rather than bolt on another layer.
+
+**Ordering note.** 2 and 3 are cheap and low-risk and should be measured first.
+4 is the one with real upside and real cost: it means giving up tiles that
+currently grow something, and our track record on changing what the route owns
+is six failures out of six. It gets tested last, and only with the town pinned.
 
 **5. ~~Audit the melon water window.~~ Done — we are clean at 100% of cap.**
 Kept in §4 as a verified negative. The open remnant is small: the route plants

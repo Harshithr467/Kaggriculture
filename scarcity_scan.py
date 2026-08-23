@@ -34,12 +34,13 @@ HINGE = [i for i, p in MARKET_PARAMS.items() if p["below_func"] == "hinge"]
 
 def scan(paths):
     deepest = collections.defaultdict(list)
+    peak = collections.defaultdict(list)
     for path in paths:
         try:
             d = json.load(io.open(path, encoding="utf-8"))
         except Exception:
             continue
-        low = {}
+        low, high = {}, {}
         for frame in d.get("steps", []):
             inv = ((frame[0].get("observation") or {}).get("market") or {}).get("inventory")
             if not inv:
@@ -47,9 +48,13 @@ def scan(paths):
             for item, qty in inv.items():
                 if item not in low or qty < low[item]:
                     low[item] = qty
+                if item not in high or qty > high[item]:
+                    high[item] = qty
         for item, qty in low.items():
             deepest[item].append(qty)
-    return deepest
+        for item, qty in high.items():
+            peak[item].append(qty)
+    return deepest, peak
 
 
 def main():
@@ -58,11 +63,12 @@ def main():
     args = ap.parse_args()
 
     paths = sorted(glob.glob(os.path.join(args.folder, "*.json")))
-    deepest = scan(paths)
+    deepest, peak = scan(paths)
     if not deepest:
         raise SystemExit(f"no market inventory found under {args.folder}")
 
     print(f"{len(paths)} replays\n")
+    print("SCARCE SIDE -- what the market pays when nobody supplies it")
     print(f"{'item':<12}{'shape':<8}{'median low':>12}{'worst low':>11}"
           f"{'price@med':>11}{'price@worst':>13}{'x base':>8}")
     for item, params in MARKET_PARAMS.items():
@@ -75,6 +81,20 @@ def main():
         p_worst = market_price(item, worst)
         print(f"{item:<12}{params['below_func']:<8}{median:>12,}{worst:>11,}"
               f"{p_med:>11,}{p_worst:>13,}{p_worst / params['base']:>8.1f}")
+
+    print("\nGLUT SIDE -- what our own selling does to the price")
+    print(f"{'item':<12}{'shape':<8}{'median high':>13}{'worst high':>12}"
+          f"{'price@med':>11}{'price@worst':>13}{'% of base':>11}")
+    for item, params in MARKET_PARAMS.items():
+        highs = sorted(peak.get(item, []))
+        if not highs:
+            continue
+        median = highs[len(highs) // 2]
+        worst = highs[-1]
+        p_med = market_price(item, median)
+        p_worst = market_price(item, worst)
+        print(f"{item:<12}{params['above_func']:<8}{median:>13,}{worst:>12,}"
+              f"{p_med:>11,}{p_worst:>13,}{100 * p_worst / params['base']:>10.0f}%")
 
     print("\nhinge products (runaway when scarce):", ", ".join(HINGE))
     for item in HINGE:
