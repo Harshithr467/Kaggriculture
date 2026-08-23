@@ -49,18 +49,75 @@ around — MELON, MILK, STRAWBERRY, WOOL — reach the engine's `PRICE_FLOOR` of
 **1 coin** in ordinary games. They collapse fast: strawberry needs only 63
 units above equilibrium to hit the floor, wool 59, milk 76, melon 158.
 
-So the entire "8 cows / 6 sheep / premium liquidation" arms race is a race to
-dump into a book that is about to be worthless, and the loser sells at 1. This
-is why every top notebook independently converged on sale *timing*, why their
-gains are measured in tens of coins, and why Rayk's C70 could go 83-5 with a
-+14,196 mean margin and still have a flat rating. **Marginal premium production
-is worth approximately nothing.** Our own production matching rank 1
-(137,654 vs 138,170) was never going to move us.
+That is a statement about the *momentary* price at the bottom of a dump, not
+about the average unit — see §0a, which measures what we actually realise and
+corrects the overreach. The important part is the steepness: a single sale of
+30 strawberries moves the price roughly half the way to zero, and the market
+only recovers as the town drains it back.
 
 And **TOMATO never gluts at all.** Its peak inventory across 60 replays is
 exactly 10,000 — equilibrium, never exceeded, because essentially nobody grows
 it. It is the only product in the game whose price is uncontested, and its
 scarce side reaches 660 (§1).
+
+## 0a. What we actually realise, and the real lever: sell rate, not sell timing
+
+Measured on a live game against C95, seed 901 (`sale_race.py`), reconstructing
+the engine's per-unit repricing:
+
+| item | our units | our avg | their units | their avg | our slot | their slot |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| MELON | 126 | 149 | 114 | 140 | 0.1 | 0.3 |
+| MILK | 397 | 65 | 218 | 76 | 0.5 | 0.4 |
+| STRAWBERRY | 413 | 88 | 299 | 88 | 0.7 | 0.3 |
+| WOOL | 216 | 159 | 188 | 156 | 0.4 | 0.1 |
+
+Two things fall out, and both cut against what I wrote above.
+
+**The slot race is already a tie.** Both agents put premium SELLs in slot ~0.3.
+Realised prices are within a few percent of each other on every product. There
+is no front-running edge left to win here — the field has already converged on
+slot 0, and §3 shows same-slot is an exact tie by construction. Our 30k margin
+comes from selling *more units at the same price*, not from better timing.
+
+**So premium production does still pay** — my "worth approximately nothing"
+above was wrong. What is true is that we realise **41% of base on milk**
+(65 vs 160), 73% on strawberry, 80% on wool. The loss is self-inflicted
+depression, and it is enormous in absolute terms.
+
+Now the part that matters. Sale rate versus the town's absorption rate, same
+game (town drew 2 bakeries, 2 ice cream shops, 2 yarn stores, 1 brunch spot,
+1 farmers market):
+
+| item | turns used | units | max in one turn | our units/turn | town drain/turn |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| MILK | 61 | 397 | **24** | 0.55 | 0.50 |
+| STRAWBERRY | 33 | 413 | **30** | 0.57 | **1.00** |
+| WOOL | 23 | 216 | **18** | 0.30 | **1.00** |
+| MELON | 15 | 126 | 15 | 0.17 | 0.00 |
+
+**For strawberry and wool, the town's demand exceeds our entire production
+rate.** The town would absorb every unit we grow at close to base price. We
+instead deliver them in 33 and 23 bursts of up to 30 and 18 units, cratering our
+own price each time, and we use 33 turns out of 720.
+
+Rough size of the prize on this one game, if sales were spread to match the
+drain instead of dumped:
+
+```
+STRAWBERRY   413 x (120 - 88)  ~ 13,200
+WOOL         216 x (200 - 159) ~  8,900
+MILK         397 x (160 - 65)  ~ 37,700   (drain 0.50 vs our 0.55 -- only partly reachable)
+```
+
+Even capturing a fraction of that dwarfs everything this project has tuned to
+date; our best measured additive gains have been around $2,000. And it is a
+pure timing change — same production, same total liquidation, more turns used.
+That is precisely the class of change our own six-failures-out-of-six rule says
+*works*: it adds no assets and buys nothing, it only spends turns already idle.
+
+MELON is the exception and stays a dump: no shop in that town buys melon, so
+only the town centre takes 1/day and there is nothing to spread into.
 
 ## 1. Three products have a runaway price when scarce
 
@@ -268,20 +325,34 @@ structurally cannot do: its opponents are recorded tapes whose market layer
 cannot react, which removes exactly the part we would lose to. Any claim about
 front-running has to be made here, not on the replay benchmark.
 
-**2. Win the slot race on the four floor-collapsing products.**
-The mechanic is now understood exactly: earlier slot index takes the whole
-prize, same slot is a tie, later slot eats the full depression. So the change is
-blunt — for MELON, MILK, STRAWBERRY and WOOL, occupy the lowest slot index we
-can, and never split one product's sale across two slots. No new liquidation, no
-change to quantities, no change to field work. Leave WHEAT and FERTILIZER
-timing alone; opponents can buy those and Rayk's wheat experiments regressed.
+**2. Spread premium sales to match the town's drain rate. This is the branch.**
+The headline work item, from §0a. STRAWBERRY and WOOL sales currently arrive in
+23–33 bursts of up to 30 units when the town would absorb our entire output at
+near base price if it were spread. Split each scheduled premium SELL into a rate
+capped at roughly the measured drain, and carry the remainder forward into the
+idle turns that follow — of which there are hundreds.
 
-**3. Then test the one-turn shift, with debt tracking.**
-If slot ordering alone is not enough, move part of a step+1 premium sale to
-step, and subtract exactly that quantity from step+1 so total liquidation is
-unchanged. This is Deniz's and Rayk's C95 rule and it is strictly stronger than
-slot ordering, because a whole turn earlier beats any slot. Gate it as they do,
-on the town having no demand this turn.
+Conservation rule, same as the notebooks use: total liquidation unchanged, only
+the schedule moves. Constraints to respect — the shed caps at 100 non-seed items
+and overflow is *destroyed*, so the carry must never let inventory build; and
+`maxMarketOrdersPerTurn` is 10, which is not close to binding. Exempt MELON,
+which has no shop demand and has to be dumped.
+
+Compute the cap from the observed town, not a constant: `unlocked_shops` is in
+the observation, single-product shops pull double, and the drain is
+`turnsPerDay / townShopSellInterval` per instance. That makes this genuinely
+town-adaptive in the way the carrot gate already is.
+
+**3. ~~Win the slot race.~~ Measured, and it is already tied.**
+Both we and C95 place premium SELLs in slot ~0.3 with realised prices within a
+few percent. `impact_scan.py` separately finds 0 coins available from permuting
+our own lines. Kaito's 46/50→48/50 is presumably won against opponents that are
+*not* already at slot 0; against the current field there is nothing here. Do not
+build it. Recheck if the field's slot discipline ever slips.
+
+The one-turn shift (Deniz, Rayk C95) is the same story: it buys a turn's head
+start in a race that is currently a dead heat. It becomes interesting only as a
+tiebreak once item 2 changes when we are in the book at all.
 
 **4. Test TOMATO as the uncontested-price play.**
 This is now the most interesting idea on the list rather than a leftover. Tomato
@@ -293,10 +364,34 @@ is competing for. Contrast with milk and wool, which we fight over and sell at 1
 The blocker is that it has no home in the current route, which is exactly why it
 belongs on a branch allowed to move tiles rather than bolt on another layer.
 
-**Ordering note.** 2 and 3 are cheap and low-risk and should be measured first.
-4 is the one with real upside and real cost: it means giving up tiles that
-currently grow something, and our track record on changing what the route owns
-is six failures out of six. It gets tested last, and only with the town pinned.
+**Ordering note.** 2 is the branch and should be built first — it is the largest
+measured opportunity in the project and it is a pure timing change, the class
+that has always worked for us. 4 has real upside but real cost: it means giving
+up tiles that currently grow something, and our record on changing what the
+route owns is zero for six. It gets tested last, with the town pinned.
+
+### A caveat on the 58-2
+
+`spar_live.py` over 10 seeds and both seats: **18-2 vs C95** (mean +2,111,
+worst −196), **20-0 vs C92** (+24,104), **20-0 vs Kaito v25** (+34,868).
+
+This does not mean we are stronger than the top of the board, and it should not
+be quoted as if it did. Our live rating is ~1783 against their ~3000, and the
+ladder is ground truth. Things that are true and reconcile it:
+
+- C92 and C94 are both explicitly marked *not submitted* in Rayk's own notebook.
+  C95 is the one he selected — and C95 is exactly the one that is close.
+- Their banks here (78–93k) match the levels their own notebooks document, so
+  they are not malfunctioning. I checked the obvious harness bug: Kaito's agent
+  does receive the real `configuration` and correctly selects the rebalance
+  regime.
+- Every one of these agents is a frozen 720-step tape plus a thin adaptive
+  layer. Seeds 901–910 are seeds none of those tapes were fitted on. Rayk's own
+  notebook warns that a frozen top-agent trace scored 0/50 on transfer, and our
+  own lifted route scored 6/16.
+
+Treat it as evidence that our *production and liquidation volume* is competitive
+and that C95 is the only one of the three worth using as a veto opponent.
 
 **5. ~~Audit the melon water window.~~ Done — we are clean at 100% of cap.**
 Kept in §4 as a verified negative. The open remnant is small: the route plants
