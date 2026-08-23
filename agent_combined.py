@@ -440,12 +440,40 @@ def _eager_sell(action, obs, step):
 # None disables it exactly and is the A/B control.
 # ----------------------------------------------------------------------------
 METER_ITEMS = ('MILK', 'STRAWBERRY', 'WOOL')
-METER_FLOOR_FRAC = None
+METER_RATE = None
+
+# Which products each town shop pulls. A shop selling exactly one product pulls
+# two of it per tick; the rest pull one of each. Shops unlock with replacement,
+# so the same shop can appear more than once and each copy consumes separately.
+_SHOP_PRODUCTS = {
+    'BAKERY': ('EGG', 'WHEAT'),
+    'PIZZA_SHOP': ('MILK', 'TOMATO', 'WHEAT'),
+    'BRUNCH_SPOT': ('EGG', 'WHEAT', 'STRAWBERRY'),
+    'YARN_STORE': ('WOOL',),
+    'ICE_CREAM_SHOP': ('STRAWBERRY', 'MILK', 'WHEAT'),
+    'PET_CAFE': ('CARROT',),
+    'SMOOTHIE_SHOP': ('STRAWBERRY', 'MILK'),
+    'FARMERS_MARKET': ('WHEAT', 'CARROT', 'TOMATO', 'STRAWBERRY'),
+}
+
+
+def _town_drain_per_turn(obs, item):
+    """Units of `item` the town eats per turn, from the shops it has unlocked."""
+    town = _value(obs, 'town', {}) or {}
+    shops = list(_value(town, 'unlocked_shops', []) or [])
+    drain = 0.0
+    for shop in shops:
+        products = _SHOP_PRODUCTS.get(shop, ())
+        if item in products:
+            drain += (2.0 if len(products) == 1 else 1.0) / 4.0
+    if item != 'FERTILIZER':
+        drain += 1.0 / 24.0
+    return drain
 
 
 def _meter_premium(action, obs, step):
-    """Trickle spare premium stock out while it still fetches a fair price."""
-    if METER_FLOOR_FRAC is None:
+    """Trickle spare premium stock out at the rate the town actually eats it."""
+    if METER_RATE is None:
         return action
 
     market_view = _value(obs, 'market', {}) or {}
@@ -457,16 +485,20 @@ def _meter_premium(action, obs, step):
     market = [list(order) for order in action.get('market') or []]
 
     for item in METER_ITEMS:
+        cap = int(round(METER_RATE * _town_drain_per_turn(obs, item)))
         already = _market_sell_qty(action, item)
+        room = cap - already
+        if room <= 0:
+            continue
         spare = (max(0, int(_value(shed, item, 0) or 0))
                  - _pickup_holdback(action, item) - already)
-        if spare <= 0:
-            continue
-        # Anything the schedule is already selling this turn walks the ladder
-        # down first, so price our extra units from where that order ends.
-        inv = int(_value(inventory, item, _MKT_I0) or _MKT_I0) + already
-        extra = _affordable_units(item, inv, spare, METER_FLOOR_FRAC)
+        extra = min(spare, room)
         if extra <= 0:
+            continue
+        # Never hand units over at the $1 floor; that is worse than holding
+        # them for the schedule's own dump.
+        inv = int(_value(inventory, item, _MKT_I0) or _MKT_I0) + already
+        if _mkt_price(item, inv) <= _MKT_PRICE_FLOOR:
             continue
         existing = next((o for o in market
                          if len(o) >= 3 and o[0] == 'SELL' and o[1] == item), None)

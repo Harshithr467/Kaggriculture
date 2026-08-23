@@ -359,7 +359,38 @@ structurally cannot do: its opponents are recorded tapes whose market layer
 cannot react, which removes exactly the part we would lose to. Any claim about
 front-running has to be made here, not on the replay benchmark.
 
-**2. Spread premium sales to match the town's drain rate. This is the branch.**
+**2. ~~Spread premium sales to match the town's drain rate.~~ TESTED, AND WRONG.**
+Both instruments lost over 360 replayed games, monotonically:
+
+```
+price floor  0.85 / 0.70 / 0.50   net  -26 / -32 / -47 wins
+rate cap     1.0  / 2.0  / 4.0    net  -51 / -64 / -75 wins
+```
+
+Mechanism, measured directly: turning the meter on **raises** mean market
+inventory (MILK 10015.5→10016.1, STRAWBERRY 9978.8→9980.3, WOOL 9995.2→9996.9)
+and drops our bank 84,230→79,879 with the opponent's unchanged.
+
+The reason generalises, and it is the most useful thing on this branch:
+**these markets clear.** Milk, strawberry and wool finish within ~40 units of
+equilibrium. When total supply and total absorption are both fixed, selling
+earlier can only raise the average inventory the market carries — and average
+inventory is what sets average price. There is no timing free lunch on a
+product that clears. The gap between 88 realised and 120 base is not a
+scheduling error; it is the intrinsic cost of pushing 413 units through a
+market whose equilibrium price only holds for small quantities.
+
+**The corollary is where the money is.** Selling early *is* free on a product
+with persistent unmet demand, because its price never collapses. Those are
+exactly the ones that end below equilibrium — CARROT −307, EGG −230,
+TOMATO −225 — and exactly the ones `EAGER_SELL_ITEMS` already targets (+51
+wins) and `CARROT_SWAP` already exploits (+12). Every result this project has
+ever gotten now fits one rule:
+
+> Timing is not the lever on products that clear.
+> Production is the lever, on the products that don't.
+
+Superseded plan, kept for the record:
 The headline work item, from §0a. STRAWBERRY and WOOL sales currently arrive in
 23–33 bursts of up to 30 units when the town would absorb our entire output at
 near base price if it were spread. Split each scheduled premium SELL into a rate

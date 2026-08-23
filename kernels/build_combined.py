@@ -243,11 +243,41 @@ PASTURE_TILT_VALUE = None
 # public experiment that retimed them regressed.
 METER_ITEMS_VALUE = ('MILK', 'STRAWBERRY', 'WOOL')
 
-# Sell spare premium stock while a unit still fetches this fraction of base.
-# The floor is the rate limit: it walks the real price ladder and stops when the
-# next unit would sell too cheap, so a market already glutted by the opponent
-# takes nothing. None disables the layer exactly and is the A/B control.
-METER_FLOOR_FRAC_VALUE = None
+# Units per turn to trickle out, as a multiple of the town's own absorption
+# rate for that item, read from the shops it has actually unlocked.
+#
+# IT DOES NOT WORK, AT ANY RATE, AND THE REASON GENERALISES. Over 360 replayed
+# games: rate 1.0 (exactly the town's own eating speed) net -51 wins, rate 2.0
+# net -64, rate 4.0 net -75. Monotonic in how much we meter.
+#
+# A price floor was tried first and is a different, also-wrong instrument:
+# "sell while a unit still fetches 0.85 x base" admits 32-40 units at
+# equilibrium and exactly 0 once glutted, so it empties the shed in the first
+# few days and then goes inert. It lost -26/-32/-47 wins at 0.85/0.70/0.50.
+#
+# The mechanism, measured directly on seed 901: turning the meter on RAISES
+# mean market inventory on all three products (MILK 10015.5 -> 10016.1,
+# STRAWBERRY 9978.8 -> 9980.3, WOOL 9995.2 -> 9996.9) and drops our bank from
+# 84,230 to 79,879 with the opponent's unchanged.
+#
+# That is the whole lesson, and it is general. These products' markets CLEAR by
+# the final bell -- they finish within ~40 units of equilibrium. When total
+# supply and total absorption are both fixed, selling earlier can only raise the
+# average inventory the market carries, and average inventory is what sets
+# average price. There is no timing free lunch on a product that clears; the
+# gap between 88 realised and 120 base is the intrinsic cost of selling 413
+# units into a market whose equilibrium price only holds for small quantities.
+#
+# The corollary is the useful part. Selling early IS free on a product with
+# persistent unmet demand, because its price never collapses. Those are exactly
+# the products that end the season below equilibrium -- CARROT -307, EGG -230,
+# TOMATO -225 -- and exactly the ones EAGER_SELL_ITEMS already targets for +51
+# wins and CARROT_SWAP for +12. Timing is not the lever on the clearing
+# products; production of the non-clearing ones is.
+#
+# Kept wired and disabled rather than deleted, so the negative stays measurable.
+# None disables the layer exactly and is the A/B control.
+METER_RATE_VALUE = None
 
 # How many of the four sheep the route buys on day 0 to buy as cows instead.
 #
@@ -555,12 +585,40 @@ def _eager_sell(action, obs, step):
 # None disables it exactly and is the A/B control.
 # ----------------------------------------------------------------------------
 METER_ITEMS = {METER_ITEMS_VALUE!r}
-METER_FLOOR_FRAC = {METER_FLOOR_FRAC_VALUE!r}
+METER_RATE = {METER_RATE_VALUE!r}
+
+# Which products each town shop pulls. A shop selling exactly one product pulls
+# two of it per tick; the rest pull one of each. Shops unlock with replacement,
+# so the same shop can appear more than once and each copy consumes separately.
+_SHOP_PRODUCTS = {{
+    'BAKERY': ('EGG', 'WHEAT'),
+    'PIZZA_SHOP': ('MILK', 'TOMATO', 'WHEAT'),
+    'BRUNCH_SPOT': ('EGG', 'WHEAT', 'STRAWBERRY'),
+    'YARN_STORE': ('WOOL',),
+    'ICE_CREAM_SHOP': ('STRAWBERRY', 'MILK', 'WHEAT'),
+    'PET_CAFE': ('CARROT',),
+    'SMOOTHIE_SHOP': ('STRAWBERRY', 'MILK'),
+    'FARMERS_MARKET': ('WHEAT', 'CARROT', 'TOMATO', 'STRAWBERRY'),
+}}
+
+
+def _town_drain_per_turn(obs, item):
+    """Units of `item` the town eats per turn, from the shops it has unlocked."""
+    town = _value(obs, 'town', {{}}) or {{}}
+    shops = list(_value(town, 'unlocked_shops', []) or [])
+    drain = 0.0
+    for shop in shops:
+        products = _SHOP_PRODUCTS.get(shop, ())
+        if item in products:
+            drain += (2.0 if len(products) == 1 else 1.0) / 4.0
+    if item != 'FERTILIZER':
+        drain += 1.0 / 24.0
+    return drain
 
 
 def _meter_premium(action, obs, step):
-    """Trickle spare premium stock out while it still fetches a fair price."""
-    if METER_FLOOR_FRAC is None:
+    """Trickle spare premium stock out at the rate the town actually eats it."""
+    if METER_RATE is None:
         return action
 
     market_view = _value(obs, 'market', {{}}) or {{}}
@@ -572,16 +630,20 @@ def _meter_premium(action, obs, step):
     market = [list(order) for order in action.get('market') or []]
 
     for item in METER_ITEMS:
+        cap = int(round(METER_RATE * _town_drain_per_turn(obs, item)))
         already = _market_sell_qty(action, item)
+        room = cap - already
+        if room <= 0:
+            continue
         spare = (max(0, int(_value(shed, item, 0) or 0))
                  - _pickup_holdback(action, item) - already)
-        if spare <= 0:
-            continue
-        # Anything the schedule is already selling this turn walks the ladder
-        # down first, so price our extra units from where that order ends.
-        inv = int(_value(inventory, item, _MKT_I0) or _MKT_I0) + already
-        extra = _affordable_units(item, inv, spare, METER_FLOOR_FRAC)
+        extra = min(spare, room)
         if extra <= 0:
+            continue
+        # Never hand units over at the $1 floor; that is worse than holding
+        # them for the schedule's own dump.
+        inv = int(_value(inventory, item, _MKT_I0) or _MKT_I0) + already
+        if _mkt_price(item, inv) <= _MKT_PRICE_FLOOR:
             continue
         existing = next((o for o in market
                          if len(o) >= 3 and o[0] == 'SELL' and o[1] == item), None)
