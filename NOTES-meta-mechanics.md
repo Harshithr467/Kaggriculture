@@ -119,6 +119,40 @@ That is precisely the class of change our own six-failures-out-of-six rule says
 MELON is the exception and stays a dump: no shop in that town buys melon, so
 only the town centre takes 1/day and there is nothing to spread into.
 
+### Calibration from 126 live games of the current submission
+
+Average end-of-season market inventory relative to equilibrium, across the
+126 replays of 55677927 (negative = demand nobody ever met):
+
+```
+CARROT      -307      WOOL         -27      MELON       +149
+EGG         -230      STRAWBERRY    +6      FERTILIZER  +437
+TOMATO      -225      MILK         +38
+WHEAT       -142
+```
+
+This is the single best check on the thesis, and it passes. **Strawberry, milk
+and wool finish the season within ~40 units of equilibrium** — over 30 days the
+town absorbs essentially everything we grow of them. So none of the value we
+lose is to overproduction; all of it is in the *path*. We deliver a season's
+worth of supply that the town genuinely wants, but we deliver it in spikes and
+sell into the craters we just dug. Smoothing the delivery should recover most of
+the gap rather than a token part of it.
+
+It also bounds a claim I made too enthusiastically in §1. TOMATO ends **225**
+below equilibrium, not the 600+ of the worst observed case. At T=200 that is a
+price near **90 against a base of 60** — real, persistent, uncontested, but
+about 1.5× base as a planning number, not 11×. Growing tomato and selling into
+that gap would push inventory back toward equilibrium as we went, so the honest
+estimate is a few hundred units at an average somewhat above base: worth having,
+not transformative. The 11× figure is the tail, not the expectation.
+
+Two smaller things fall out. **FERTILIZER ends +437 oversupplied**, which at its
+linear curve means the last of it sells for about 13 against a base of 100 — we
+are giving it away. And CARROT/EGG/TOMATO all ending deeply short is the same
+hinge story from §1, now confirmed as the steady state of a real season rather
+than a worst case.
+
 ## 1. Three products have a runaway price when scarce
 
 The engine's price curve uses a per-product shape on each side of equilibrium.
