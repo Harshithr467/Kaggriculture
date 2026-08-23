@@ -330,34 +330,45 @@ CARROT_SEED_STEP_VALUE = 600
 # the measured reason the sale meter failed and the reason more milk and wool
 # would not help either.
 #
-# IT DOES NOT WORK FROM EITHER DONOR, and this is the seventh failure of the
-# same kind. Measured over 360 replayed games, 10 strawberry tiles converted:
-# 63W-297L against the control's 209W-151L -- net -146 wins, 135 of 195 wins
-# given back, -3,017 a game. On a town-pinned single seed the margin swings
-# +2,642 (win) to -6,598 (loss).
+# IT DOES NOT WORK FROM ANY DONOR, and this is the seventh failure of the same
+# kind. Every configuration tried, over the same 360 replayed games against a
+# control of 209W-151L (58.1%):
 #
-# The mechanism is watering, and it is worth writing down because the crop table
-# does not warn you. Tomato is `ongoing`: it holds its tile for the rest of the
-# season and needs water throughout, and two consecutive dry days turn a plant
-# into a WEED.
+#     10 strawberry, day 7     63W-297L   17.5%   -3,017/game   net -146
+#      8 wheat, day 8          62W-298L   17.2%   -7,389/game   net -147
+#      5 wheat, day 4          23W-337L    6.4%  -12,533/game   net -186
+#     13 wheat, days 4+8       19W-341L    5.3%  -13,896/game   net -190
 #
-#   * WHEAT donors: the route waters a wheat tile only through its four-day
-#     cycle, so all five converted tiles died on day 16 at peak yield 3 of 4 --
-#     and the resulting weed then blocked the route's own later plantings there,
-#     making the weed-repair layer burn actions digging it out.
-#   * STRAWBERRY donors: strawberry is also `ongoing`, so those tiles really are
-#     on a permanent-crop schedule -- but it is a schedule shaped for interval 2,
-#     and a tomato there still survived only 11 days. Ten tiles yielded 24
-#     tomatoes against the 25 strawberries given up: break-even on the trade,
-#     and the rest of the season lost.
+# Note the ordering: the EARLIER the wheat donor, the worse it gets, because the
+# tile dies sooner and spends longer as a weed. On a town-pinned single seed the
+# strawberry variant swings the margin +2,642 (win) to -6,598 (loss).
 #
-# So tomato's structural edge is real -- it is the only product whose market
-# never gluts, ending an average season 225 units short -- and unreachable with
-# this route. Capturing it needs authored WATER actions, which means editing the
-# choreography rather than substituting into it. Substituting a crop only works
-# where the donor's existing actions happen to fit the new crop's calendar,
-# which is exactly why CARROT_SWAP works: carrot waters at ages 2-3 and the
-# route's end-of-season wheat is lifted at age 3.
+# The mechanism is the ONGOING PRODUCTION CAP, in `_daily_refresh_plants`:
+#
+#     production_count = days_since_first // interval + 1
+#     if production_count > cd["max_yield"]: continue
+#     ...
+#     if production_count == cd["max_yield"]:
+#         tile["max_lifespan_step"] = (next_day + 1) * turns_per_day
+#
+# An `ongoing` crop yields `max_yield` units IN TOTAL and then DIES. It is not a
+# perennial. Tomato's max_yield is 4 at interval 1, so it produces on four
+# consecutive days and is gone; strawberry's is also 4 but at interval 2, so it
+# spreads the same four units over eight days.
+#
+# That makes tomato worth about half a strawberry per tile-life -- four units at
+# base 60 against four units at base 120 -- and the scarcity premium does not
+# close the gap (tomato realises ~90, strawberry ~88, so 360 against 352 per
+# tile, near parity at best). Meanwhile the tile dies early and the route's
+# later actions on it misfire, which is where the losses actually come from.
+#
+# Both donor sets died on exactly the schedule this predicts: wheat donors
+# planted day 4 died day 16, strawberry donors planted day 7 lasted 11 days.
+#
+# AN EARLIER VERSION OF THIS COMMENT BLAMED WATERING. That was wrong -- the
+# tiles were watered fine and died on their production cap. The crop table's
+# `ongoing` flag reads like "perennial" and is not; check `max_yield` against
+# `interval` before believing any ongoing crop will pay rent all season.
 #
 # () disables the swap exactly and is the A/B control.
 TOMATO_SWAP_VALUE = ()

@@ -429,28 +429,35 @@ control                  209W-151L   58.1%   +804/game
 135 of 195 wins given back. On a town-pinned seed the margin swings +2,642 to
 −6,598. Wheat donors were worse still: bank 84,230 → 67,075.
 
-The mechanism is **watering**, and the crop table gives no warning of it. Tomato
-is `ongoing` — it holds its tile all season and needs water throughout, and two
-consecutive dry days turn a plant into a WEED.
+**Correction: I first blamed watering, and that was wrong.** The tiles were
+watered fine. The real mechanism is the **ongoing production cap** in
+`_daily_refresh_plants`:
 
-- **Wheat donors:** the route waters a wheat tile only through its four-day
-  cycle. All five tiles died on day 16 at peak yield 3 of 4, and the resulting
-  weed then blocked the route's own later plantings, making the weed-repair
-  layer burn actions digging it out.
-- **Strawberry donors:** strawberry is also `ongoing`, so those tiles genuinely
-  are on a permanent-crop schedule — but one shaped for `interval` 2. A tomato
-  there still survived only **11 days**. Ten tiles produced 24 tomatoes against
-  25 strawberries given up: break-even on the trade, season lost on the tiles.
+```python
+production_count = days_since_first // interval + 1
+if production_count > cd["max_yield"]: continue
+...
+if production_count == cd["max_yield"]:
+    tile["max_lifespan_step"] = (next_day + 1) * turns_per_day
+```
 
-So tomato's edge is real and unreachable with this route. Capturing it needs
-authored WATER actions — editing the choreography, not substituting into it.
+An `ongoing` crop yields `max_yield` units **in total and then dies**. It is not
+a perennial — the flag reads like one and isn't. Tomato is 4 units at
+`interval` 1, so it produces four days running and is gone. Strawberry is also
+4 units but at `interval` 2, spreading them over eight days.
 
-**This is the seventh failure of the same kind, and it finally explains the
-rule.** Substituting a crop works only where the donor's *existing actions
-happen to fit the new crop's calendar*. That is precisely why `CARROT_SWAP`
-works and nothing else has: carrot waters at ages 2–3, and the route's
-end-of-season wheat is lifted at age 3. It was never that "carrot is a good
-crop" — it was that carrot fits in the hole wheat leaves.
+So a tomato tile is worth about **half a strawberry tile**: four units at base
+60 against four at base 120. The scarcity premium doesn't close it — tomato
+realises ~90 and strawberry ~88, so 360 against 352, parity at best — and the
+tile dies early, so the route's later actions on it misfire. Both donor sets
+died exactly on this schedule: wheat donors planted day 4 died day 16,
+strawberry donors planted day 7 lasted 11 days.
+
+**The rule that survives:** before believing any `ongoing` crop will pay rent
+all season, check `max_yield` against `interval`. And substituting a crop works
+only where the donor's *existing actions fit the new crop's calendar* — which is
+exactly why `CARROT_SWAP` works and nothing else has: carrot waters at ages 2–3
+and the route's end-of-season wheat is lifted at age 3.
 
 Superseded rationale:
 This is now the most interesting idea on the list rather than a leftover. Tomato
