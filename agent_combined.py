@@ -423,6 +423,63 @@ def _eager_sell(action, obs, step):
 
 
 # ----------------------------------------------------------------------------
+# Meter premium output out at a rate the town can absorb.
+#
+# The price curve falls steeply on the glut side: strawberry reaches the $1
+# floor only 63 units above equilibrium, wool 59, milk 76. So a dump of 30
+# strawberries sells its first unit near base and its last near nothing, and the
+# route does exactly that 33 times a game while leaving 687 turns unused.
+#
+# This adds a trickle from spare shed stock on the turns in between, sized off
+# the real price ladder. It never reduces a scheduled order: SELL spends from
+# the shed, so once the stock has been trickled out the scheduled dump simply
+# finds less and sells less. Total liquidation is conserved without any debt
+# bookkeeping, and the shed -- which peaks at 96 of 100 -- gets emptier, not
+# fuller.
+#
+# None disables it exactly and is the A/B control.
+# ----------------------------------------------------------------------------
+METER_ITEMS = ('MILK', 'STRAWBERRY', 'WOOL')
+METER_FLOOR_FRAC = None
+
+
+def _meter_premium(action, obs, step):
+    """Trickle spare premium stock out while it still fetches a fair price."""
+    if METER_FLOOR_FRAC is None:
+        return action
+
+    market_view = _value(obs, 'market', {}) or {}
+    inventory = _value(market_view, 'inventory', {}) or {}
+    private = _value(obs, 'private', {}) or {}
+    shed = _value(private, 'shed', {}) or {}
+
+    action = _copy_plan(action)
+    market = [list(order) for order in action.get('market') or []]
+
+    for item in METER_ITEMS:
+        already = _market_sell_qty(action, item)
+        spare = (max(0, int(_value(shed, item, 0) or 0))
+                 - _pickup_holdback(action, item) - already)
+        if spare <= 0:
+            continue
+        # Anything the schedule is already selling this turn walks the ladder
+        # down first, so price our extra units from where that order ends.
+        inv = int(_value(inventory, item, _MKT_I0) or _MKT_I0) + already
+        extra = _affordable_units(item, inv, spare, METER_FLOOR_FRAC)
+        if extra <= 0:
+            continue
+        existing = next((o for o in market
+                         if len(o) >= 3 and o[0] == 'SELL' and o[1] == item), None)
+        if existing is not None:
+            existing[2] = max(0, int(existing[2])) + extra
+        elif len(market) < 10:
+            market.append(['SELL', item, extra])
+
+    action['market'] = market[:10]
+    return action
+
+
+# ----------------------------------------------------------------------------
 # Herd swap: rewrite the recording itself, once, at import.
 #
 # The route's animal program is 8 cows and 4 sheep, which is up to 176 milk and
@@ -967,6 +1024,7 @@ def agent(obs):
         action = _carrot_or_wheat(action, obs, step)
         action = _melon_patch(action, obs, step)
         action = _eager_sell(action, obs, step)
+        action = _meter_premium(action, obs, step)
         return _match_hands(action, obs)
     except Exception:
         farm = _farm_view(obs, _player(obs))

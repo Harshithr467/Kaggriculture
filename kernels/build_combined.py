@@ -217,6 +217,38 @@ EAGER_FLOOR_FRAC_VALUE = 0.30
 HERD_SWAP_VALUE = {}
 PASTURE_TILT_VALUE = None
 
+# Meter the route's own premium output out at a rate the town can absorb.
+#
+# The measurement that motivates this (sale_race.py, seed 901 vs rayk_c95):
+# the route grows 413 strawberries and delivers them in 33 dumps of up to 30
+# units, using 33 turns out of 720. It realises 88 a unit against a base of 120.
+# Wool: 216 units in 23 dumps of up to 18, realising 159 against a base of 200.
+# Milk: 397 units in 61 dumps of up to 24, realising 65 against a base of 160.
+#
+# The town in that game drained 1.00 strawberry and 1.00 wool per turn -- more
+# than we grow. It would have bought the entire crop at close to base price if
+# we had handed it over at the rate it eats instead of in piles.
+#
+# Two things make this safe to do by ADDING sales rather than by holding the
+# scheduled ones back. First, the shed peaks at 96 of its 100 cap in a normal
+# game and overflow is destroyed, so holding stock is the dangerous direction
+# and selling early is the safe one. Second, no debt tracking is needed: SELL
+# spends from the shed and _commit_unit simply stops when the stock runs out,
+# so a scheduled dump that arrives after we have already trickled the stock out
+# just sells less. The shed is the accounting.
+#
+# MELON is excluded on purpose -- no shop in the game buys it, so only the town
+# centre takes one a day and there is nothing to meter into. WHEAT and
+# FERTILIZER are excluded because the opponent can BUY_PRODUCT them, and every
+# public experiment that retimed them regressed.
+METER_ITEMS_VALUE = ('MILK', 'STRAWBERRY', 'WOOL')
+
+# Sell spare premium stock while a unit still fetches this fraction of base.
+# The floor is the rate limit: it walks the real price ladder and stops when the
+# next unit would sell too cheap, so a market already glutted by the opponent
+# takes nothing. None disables the layer exactly and is the A/B control.
+METER_FLOOR_FRAC_VALUE = None
+
 # How many of the four sheep the route buys on day 0 to buy as cows instead.
 #
 # The rank-1 agent (Ryo Hasegawa, 3151.8) runs 12 cows and 2 sheep; the route
@@ -492,6 +524,63 @@ def _eager_sell(action, obs, step):
         # ones from where that order leaves the market.
         inv = int(_value(inventory, item, _MKT_I0) or _MKT_I0) + already
         extra = _affordable_units(item, inv, spare, EAGER_FLOOR_FRAC)
+        if extra <= 0:
+            continue
+        existing = next((o for o in market
+                         if len(o) >= 3 and o[0] == 'SELL' and o[1] == item), None)
+        if existing is not None:
+            existing[2] = max(0, int(existing[2])) + extra
+        elif len(market) < 10:
+            market.append(['SELL', item, extra])
+
+    action['market'] = market[:10]
+    return action
+
+
+# ----------------------------------------------------------------------------
+# Meter premium output out at a rate the town can absorb.
+#
+# The price curve falls steeply on the glut side: strawberry reaches the $1
+# floor only 63 units above equilibrium, wool 59, milk 76. So a dump of 30
+# strawberries sells its first unit near base and its last near nothing, and the
+# route does exactly that 33 times a game while leaving 687 turns unused.
+#
+# This adds a trickle from spare shed stock on the turns in between, sized off
+# the real price ladder. It never reduces a scheduled order: SELL spends from
+# the shed, so once the stock has been trickled out the scheduled dump simply
+# finds less and sells less. Total liquidation is conserved without any debt
+# bookkeeping, and the shed -- which peaks at 96 of 100 -- gets emptier, not
+# fuller.
+#
+# None disables it exactly and is the A/B control.
+# ----------------------------------------------------------------------------
+METER_ITEMS = {METER_ITEMS_VALUE!r}
+METER_FLOOR_FRAC = {METER_FLOOR_FRAC_VALUE!r}
+
+
+def _meter_premium(action, obs, step):
+    """Trickle spare premium stock out while it still fetches a fair price."""
+    if METER_FLOOR_FRAC is None:
+        return action
+
+    market_view = _value(obs, 'market', {{}}) or {{}}
+    inventory = _value(market_view, 'inventory', {{}}) or {{}}
+    private = _value(obs, 'private', {{}}) or {{}}
+    shed = _value(private, 'shed', {{}}) or {{}}
+
+    action = _copy_plan(action)
+    market = [list(order) for order in action.get('market') or []]
+
+    for item in METER_ITEMS:
+        already = _market_sell_qty(action, item)
+        spare = (max(0, int(_value(shed, item, 0) or 0))
+                 - _pickup_holdback(action, item) - already)
+        if spare <= 0:
+            continue
+        # Anything the schedule is already selling this turn walks the ladder
+        # down first, so price our extra units from where that order ends.
+        inv = int(_value(inventory, item, _MKT_I0) or _MKT_I0) + already
+        extra = _affordable_units(item, inv, spare, METER_FLOOR_FRAC)
         if extra <= 0:
             continue
         existing = next((o for o in market
@@ -1048,7 +1137,8 @@ NEW_CALL = ("        action = _final_drop_cash(obs, action, step)\n"
             "        action = _cap_feed_buying(action, obs, step)\n"
             "        action = _carrot_or_wheat(action, obs, step)\n"
             "        action = _melon_patch(action, obs, step)\n"
-            "        action = _eager_sell(action, obs, step)")
+            "        action = _eager_sell(action, obs, step)\n"
+            "        action = _meter_premium(action, obs, step)")
 assert OLD_CALL in combined, "agent() body does not match the expected shape"
 combined = combined.replace(OLD_CALL, NEW_CALL, 1)
 
