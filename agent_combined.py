@@ -587,6 +587,55 @@ def _swap_carrot():
             market.append(['BUY_SEED', 'CARROT', planted])
 
 
+TOMATO_SWAP = ()
+TOMATO_SEED_STEP = None
+
+
+def _swap_tomato():
+    """Grow some of the route's tiles as tomato instead.
+
+    WHEAT DONORS DO NOT WORK, and the reason is mechanical. Tomato is `ongoing`,
+    so it holds the tile for the rest of the season and needs watering the whole
+    time; the route waters a wheat tile only through its four-day cycle. On
+    seed 901 all five converted wheat tiles turned to WEED on day 16 -- dead of
+    thirst, peak yield 3 of 4 -- and the dead tile then blocked the route's own
+    later wheat plantings. Bank fell 84,230 -> 67,075.
+
+    STRAWBERRY donors are the fix: strawberry is also `ongoing`, so those tiles
+    are already on a watering schedule that keeps a permanent crop alive. Tomato
+    is strictly better on every mechanical axis -- first yield day 8 vs 10,
+    interval 1 vs 2, seed 50 vs 100, same cap of 4 -- and strawberry's market
+    clears (+6 at season end) while tomato's ends 225 short.
+    """
+    if not TOMATO_SWAP:
+        return
+    planted = 0
+    first = len(_ROUTE)
+    for step, hand in TOMATO_SWAP:
+        if not 0 <= step < len(_ROUTE):
+            continue
+        hands = _ROUTE[step].get('hands') or []
+        if not 0 <= hand < len(hands):
+            continue
+        unit = hands[hand]
+        if (unit and len(unit) >= 2 and unit[0] == 'PLANT'
+                and unit[1] in ('WHEAT', 'STRAWBERRY')):
+            unit[1] = 'TOMATO'
+            planted += 1
+            first = min(first, step)
+    if not planted:
+        return
+    # Buy the seed a day ahead of the first planting, in the first step with
+    # room under the ten-order cap. Never on day 0: that order is already
+    # cash-clipped, which is what killed the melon patch.
+    start = TOMATO_SEED_STEP if TOMATO_SEED_STEP is not None else max(24, first - 24)
+    for step in range(start, min(first + 1, len(_ROUTE))):
+        market = _ROUTE[step].setdefault('market', [])
+        if len(market) < 10:
+            market.append(['BUY_SEED', 'TOMATO', planted])
+            return
+
+
 def _add_day0_order(order):
     """Put an order in the first day-0 step with room under the ten-order cap."""
     for step in range(1, 24):
@@ -651,12 +700,13 @@ def _apply_route_edits():
     global _ROUTE, _EDITS_APPLIED
     key = (tuple(sorted(HERD_SWAP.items())), tuple(CARROT_SWAP), CARROT_SEED_STEP,
            tuple(MELON_PATCH), MELON_PATCH_SHEEP_CUT, DAY0_COW_SWAP,
-           CARROT_PRICE_GATE)
+           CARROT_PRICE_GATE, tuple(TOMATO_SWAP), TOMATO_SEED_STEP)
     if _EDITS_APPLIED == key:
         return
     _EDITS_APPLIED = key
     _ROUTE = copy.deepcopy(_ROUTE_STOCK)
     _swap_carrot()
+    _swap_tomato()
     _swap_day0_herd()
     _swap_melon_seed()
     _swap_herd()

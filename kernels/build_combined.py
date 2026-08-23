@@ -321,6 +321,53 @@ CARROT_SWAP_VALUE = (
 # is seed for, EVERY plant of that crop that turn is dropped.
 CARROT_SEED_STEP_VALUE = 600
 
+# Wheat plantings to grow as TOMATO instead, as (route step, hand) pairs.
+#
+# Tomato is the only product in the game whose market never gluts: across 60
+# live replays its peak inventory is exactly equilibrium, and it ends an average
+# season 225 units SHORT. Nobody grows it. Every other crop we could add more of
+# clears the market, so extra volume only depresses its own price -- which is
+# the measured reason the sale meter failed and the reason more milk and wool
+# would not help either.
+#
+# IT DOES NOT WORK FROM EITHER DONOR, and this is the seventh failure of the
+# same kind. Measured over 360 replayed games, 10 strawberry tiles converted:
+# 63W-297L against the control's 209W-151L -- net -146 wins, 135 of 195 wins
+# given back, -3,017 a game. On a town-pinned single seed the margin swings
+# +2,642 (win) to -6,598 (loss).
+#
+# The mechanism is watering, and it is worth writing down because the crop table
+# does not warn you. Tomato is `ongoing`: it holds its tile for the rest of the
+# season and needs water throughout, and two consecutive dry days turn a plant
+# into a WEED.
+#
+#   * WHEAT donors: the route waters a wheat tile only through its four-day
+#     cycle, so all five converted tiles died on day 16 at peak yield 3 of 4 --
+#     and the resulting weed then blocked the route's own later plantings there,
+#     making the weed-repair layer burn actions digging it out.
+#   * STRAWBERRY donors: strawberry is also `ongoing`, so those tiles really are
+#     on a permanent-crop schedule -- but it is a schedule shaped for interval 2,
+#     and a tomato there still survived only 11 days. Ten tiles yielded 24
+#     tomatoes against the 25 strawberries given up: break-even on the trade,
+#     and the rest of the season lost.
+#
+# So tomato's structural edge is real -- it is the only product whose market
+# never gluts, ending an average season 225 units short -- and unreachable with
+# this route. Capturing it needs authored WATER actions, which means editing the
+# choreography rather than substituting into it. Substituting a crop only works
+# where the donor's existing actions happen to fit the new crop's calendar,
+# which is exactly why CARROT_SWAP works: carrot waters at ages 2-3 and the
+# route's end-of-season wheat is lifted at age 3.
+#
+# () disables the swap exactly and is the A/B control.
+TOMATO_SWAP_VALUE = ()
+
+# Where to buy the seed. Day 0 is deliberately avoided: the opening order is
+# already cash-clipped (5 melon seeds requested, 2 filled) and that is exactly
+# what killed the melon patch. Day 4 has the route buying wheat seed anyway, so
+# the cash is proven to be there.
+TOMATO_SEED_STEP_VALUE = None
+
 # Whether to decide CARROT-or-WHEAT for those 13 slots from the live price.
 #
 # They are planted on day 26, by which point all eight shops have opened, so the
@@ -734,6 +781,55 @@ def _swap_carrot():
             market.append(['BUY_SEED', 'CARROT', planted])
 
 
+TOMATO_SWAP = {TOMATO_SWAP_VALUE!r}
+TOMATO_SEED_STEP = {TOMATO_SEED_STEP_VALUE!r}
+
+
+def _swap_tomato():
+    """Grow some of the route's tiles as tomato instead.
+
+    WHEAT DONORS DO NOT WORK, and the reason is mechanical. Tomato is `ongoing`,
+    so it holds the tile for the rest of the season and needs watering the whole
+    time; the route waters a wheat tile only through its four-day cycle. On
+    seed 901 all five converted wheat tiles turned to WEED on day 16 -- dead of
+    thirst, peak yield 3 of 4 -- and the dead tile then blocked the route's own
+    later wheat plantings. Bank fell 84,230 -> 67,075.
+
+    STRAWBERRY donors are the fix: strawberry is also `ongoing`, so those tiles
+    are already on a watering schedule that keeps a permanent crop alive. Tomato
+    is strictly better on every mechanical axis -- first yield day 8 vs 10,
+    interval 1 vs 2, seed 50 vs 100, same cap of 4 -- and strawberry's market
+    clears (+6 at season end) while tomato's ends 225 short.
+    """
+    if not TOMATO_SWAP:
+        return
+    planted = 0
+    first = len(_ROUTE)
+    for step, hand in TOMATO_SWAP:
+        if not 0 <= step < len(_ROUTE):
+            continue
+        hands = _ROUTE[step].get('hands') or []
+        if not 0 <= hand < len(hands):
+            continue
+        unit = hands[hand]
+        if (unit and len(unit) >= 2 and unit[0] == 'PLANT'
+                and unit[1] in ('WHEAT', 'STRAWBERRY')):
+            unit[1] = 'TOMATO'
+            planted += 1
+            first = min(first, step)
+    if not planted:
+        return
+    # Buy the seed a day ahead of the first planting, in the first step with
+    # room under the ten-order cap. Never on day 0: that order is already
+    # cash-clipped, which is what killed the melon patch.
+    start = TOMATO_SEED_STEP if TOMATO_SEED_STEP is not None else max(24, first - 24)
+    for step in range(start, min(first + 1, len(_ROUTE))):
+        market = _ROUTE[step].setdefault('market', [])
+        if len(market) < 10:
+            market.append(['BUY_SEED', 'TOMATO', planted])
+            return
+
+
 def _add_day0_order(order):
     """Put an order in the first day-0 step with room under the ten-order cap."""
     for step in range(1, 24):
@@ -798,12 +894,13 @@ def _apply_route_edits():
     global _ROUTE, _EDITS_APPLIED
     key = (tuple(sorted(HERD_SWAP.items())), tuple(CARROT_SWAP), CARROT_SEED_STEP,
            tuple(MELON_PATCH), MELON_PATCH_SHEEP_CUT, DAY0_COW_SWAP,
-           CARROT_PRICE_GATE)
+           CARROT_PRICE_GATE, tuple(TOMATO_SWAP), TOMATO_SEED_STEP)
     if _EDITS_APPLIED == key:
         return
     _EDITS_APPLIED = key
     _ROUTE = copy.deepcopy(_ROUTE_STOCK)
     _swap_carrot()
+    _swap_tomato()
     _swap_day0_herd()
     _swap_melon_seed()
     _swap_herd()

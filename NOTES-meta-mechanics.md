@@ -419,7 +419,40 @@ The one-turn shift (Deniz, Rayk C95) is the same story: it buys a turn's head
 start in a race that is currently a dead heat. It becomes interesting only as a
 tiebreak once item 2 changes when we are in the book at all.
 
-**4. Test TOMATO as the uncontested-price play.**
+**4. ~~Test TOMATO as the uncontested-price play.~~ TESTED. −146 WINS.**
+
+```
+control                  209W-151L   58.1%   +804/game
+10 strawberry -> tomato   63W-297L   17.5%   -3,017/game   net -146 wins
+```
+
+135 of 195 wins given back. On a town-pinned seed the margin swings +2,642 to
+−6,598. Wheat donors were worse still: bank 84,230 → 67,075.
+
+The mechanism is **watering**, and the crop table gives no warning of it. Tomato
+is `ongoing` — it holds its tile all season and needs water throughout, and two
+consecutive dry days turn a plant into a WEED.
+
+- **Wheat donors:** the route waters a wheat tile only through its four-day
+  cycle. All five tiles died on day 16 at peak yield 3 of 4, and the resulting
+  weed then blocked the route's own later plantings, making the weed-repair
+  layer burn actions digging it out.
+- **Strawberry donors:** strawberry is also `ongoing`, so those tiles genuinely
+  are on a permanent-crop schedule — but one shaped for `interval` 2. A tomato
+  there still survived only **11 days**. Ten tiles produced 24 tomatoes against
+  25 strawberries given up: break-even on the trade, season lost on the tiles.
+
+So tomato's edge is real and unreachable with this route. Capturing it needs
+authored WATER actions — editing the choreography, not substituting into it.
+
+**This is the seventh failure of the same kind, and it finally explains the
+rule.** Substituting a crop works only where the donor's *existing actions
+happen to fit the new crop's calendar*. That is precisely why `CARROT_SWAP`
+works and nothing else has: carrot waters at ages 2–3, and the route's
+end-of-season wheat is lifted at age 3. It was never that "carrot is a good
+crop" — it was that carrot fits in the hole wheat leaves.
+
+Superseded rationale:
 This is now the most interesting idea on the list rather than a leftover. Tomato
 is the only product in the game that **never gluts** — peak inventory across 60
 replays is exactly equilibrium — while its `hinge` scarce side reaches 660, 11×
