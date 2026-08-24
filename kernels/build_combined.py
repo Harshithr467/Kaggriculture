@@ -373,6 +373,52 @@ CARROT_SEED_STEP_VALUE = 600
 # () disables the swap exactly and is the A/B control.
 TOMATO_SWAP_VALUE = ()
 
+# Turn the first watering of a wheat tile into a FERTILIZE, at this crop age.
+#
+# Measured: our wheat reaches a mean peak of 3.80 against a cap of 6, and 0% of
+# it is ever fertilized -- all 72 FERTILIZE actions in a game go to strawberry.
+# Meanwhile we collect 296 fertilizer, use 72, and dump the rest into a market
+# that NOTHING consumes (no shop lists FERTILIZER and TOWN_CENTER_PRODUCTS
+# excludes it), so its price only ever falls: 100 on day 2 to 11 by day 29. The
+# last ~123 units go for 42 down to 16.
+#
+# One FERTILIZE covers `day`, `day+1` and `day+2` -- exactly wheat's watering
+# window of ages 2..4. So swapping the age-2 WATER for a FERTILIZE costs no
+# extra action and changes the tile from 1+1+1+1 = 4 units to 1+0+2+2 = 5.
+# Swapping at age 3 gains nothing (1+1+0+2 = 4), which is the control.
+#
+# This is a RUNTIME layer, not a route edit, because FERTILIZE spends from the
+# WORKER'S OWN inventory (`_inv_take(inv, "FERTILIZER", 1)`), not the shed. A
+# worker that is not carrying fertilizer would silently do nothing and lose the
+# watering too, turning a +1 into a -1. So the swap only fires when the unit
+# actually holds a unit of fertilizer, and otherwise leaves the route alone.
+#
+# IT DOES NOT WORK, AND THE ARITHMETIC ABOVE IS RIGHT BUT INCOMPLETE. On a
+# town-pinned seed 901:
+#
+#     age   wheat tiles   mean peak   fertilized   margin
+#     None          137        3.80           0%   +2,642  (win)
+#     2             136        3.54           8%   -3,335  (loss)
+#     3             137        3.78          16%      -96  (neutral)
+#
+# Two things kill it. First, YOU CANNOT REMOVE A WATERING. `_daily_refresh_plants`
+# turns a tile to WEED on `consecutive_unwatered >= 2`, and wheat's window opens
+# at age 2, so ages 0-1 are already dry -- dropping the age-2 watering makes two
+# in a row and the plant dies. That is the lost tile and the fall from 3.80 to
+# 3.54. Second, age 3 is arithmetically neutral, exactly as predicted: watering
+# lands on ages 2 and 4 for 1+1+2 = 4, the same as the unfertilized 1+1+1+1.
+#
+# It also only ever fired on 8-16% of tiles, because a worker has to be holding
+# fertilizer at that exact moment and usually is not.
+#
+# So fertilizing wheat needs an ADDED action from a worker who is idle, standing
+# on the tile, and carrying a unit -- which is route authoring, not
+# substitution, and therefore the same category that has now failed eight times.
+#
+# Kept wired and disabled so the negative stays measurable.
+# None disables the layer exactly and is the A/B control.
+FERTILIZE_WHEAT_AGE_VALUE = None
+
 # Where to buy the seed. Day 0 is deliberately avoided: the opening order is
 # already cash-clipped (5 melon seeds requested, 2 filled) and that is exactly
 # what killed the melon patch. Day 4 has the route buying wheat seed anyway, so
@@ -711,6 +757,60 @@ def _meter_premium(action, obs, step):
             market.append(['SELL', item, extra])
 
     action['market'] = market[:10]
+    return action
+
+
+# ----------------------------------------------------------------------------
+# Fertilize wheat with the surplus nobody buys.
+#
+# See FERTILIZE_WHEAT_AGE_VALUE in kernels/build_combined.py for the full
+# reasoning. In short: wheat peaks at 3.80 of a cap of 6 and is never
+# fertilized, one FERTILIZE covers its whole 2..4 watering window, and the
+# fertilizer it spends is otherwise dumped into a market with no consumer at a
+# price that only falls.
+#
+# None disables it exactly and is the A/B control.
+# ----------------------------------------------------------------------------
+FERTILIZE_WHEAT_AGE = {FERTILIZE_WHEAT_AGE_VALUE!r}
+
+
+def _fertilize_wheat(action, obs, step):
+    """Spend carried fertilizer on a wheat tile instead of watering it once."""
+    if FERTILIZE_WHEAT_AGE is None:
+        return action
+
+    seat = _player(obs)
+    farm = _farm_view(obs, seat)
+    private = _value(obs, 'private', {{}}) or {{}}
+    inventories = list(_value(private, 'inventories', []) or [])
+    day = step // 24
+
+    action = _copy_plan(action)
+    units = [action.get('farmer') or ['PASS']] + list(action.get('hands') or [])
+    positions = [_value(farm, 'farmer')] + list(_value(farm, 'hands', []) or [])
+
+    for index, (position, unit) in enumerate(zip(positions, units)):
+        if not unit or unit[0] != 'WATER':
+            continue
+        # FERTILIZE spends from this worker's own sack. Without a unit in hand
+        # it is a no-op that also throws away the watering.
+        carried = inventories[index] if index < len(inventories) else {{}}
+        if int(_value(carried, 'FERTILIZER', 0) or 0) <= 0:
+            continue
+        tile = _tile(farm, position)
+        if not isinstance(tile, dict) or tile.get('kind') != 'PLANT':
+            continue
+        if tile.get('crop') != 'WHEAT':
+            continue
+        # Already covered: a second FERTILIZE would burn a unit for nothing.
+        if int(tile.get('fertilized_until_day', -1) or -1) >= day:
+            continue
+        if day - int(tile.get('planted_day', day) or day) != FERTILIZE_WHEAT_AGE:
+            continue
+        units[index] = ['FERTILIZE']
+
+    action['farmer'] = units[0] if units else ['PASS']
+    action['hands'] = units[1:]
     return action
 '''
 
@@ -1308,7 +1408,8 @@ NEW_CALL = ("        action = _final_drop_cash(obs, action, step)\n"
             "        action = _carrot_or_wheat(action, obs, step)\n"
             "        action = _melon_patch(action, obs, step)\n"
             "        action = _eager_sell(action, obs, step)\n"
-            "        action = _meter_premium(action, obs, step)")
+            "        action = _meter_premium(action, obs, step)\n"
+            "        action = _fertilize_wheat(action, obs, step)")
 assert OLD_CALL in combined, "agent() body does not match the expected shape"
 combined = combined.replace(OLD_CALL, NEW_CALL, 1)
 

@@ -512,6 +512,60 @@ def _meter_premium(action, obs, step):
 
 
 # ----------------------------------------------------------------------------
+# Fertilize wheat with the surplus nobody buys.
+#
+# See FERTILIZE_WHEAT_AGE_VALUE in kernels/build_combined.py for the full
+# reasoning. In short: wheat peaks at 3.80 of a cap of 6 and is never
+# fertilized, one FERTILIZE covers its whole 2..4 watering window, and the
+# fertilizer it spends is otherwise dumped into a market with no consumer at a
+# price that only falls.
+#
+# None disables it exactly and is the A/B control.
+# ----------------------------------------------------------------------------
+FERTILIZE_WHEAT_AGE = None
+
+
+def _fertilize_wheat(action, obs, step):
+    """Spend carried fertilizer on a wheat tile instead of watering it once."""
+    if FERTILIZE_WHEAT_AGE is None:
+        return action
+
+    seat = _player(obs)
+    farm = _farm_view(obs, seat)
+    private = _value(obs, 'private', {}) or {}
+    inventories = list(_value(private, 'inventories', []) or [])
+    day = step // 24
+
+    action = _copy_plan(action)
+    units = [action.get('farmer') or ['PASS']] + list(action.get('hands') or [])
+    positions = [_value(farm, 'farmer')] + list(_value(farm, 'hands', []) or [])
+
+    for index, (position, unit) in enumerate(zip(positions, units)):
+        if not unit or unit[0] != 'WATER':
+            continue
+        # FERTILIZE spends from this worker's own sack. Without a unit in hand
+        # it is a no-op that also throws away the watering.
+        carried = inventories[index] if index < len(inventories) else {}
+        if int(_value(carried, 'FERTILIZER', 0) or 0) <= 0:
+            continue
+        tile = _tile(farm, position)
+        if not isinstance(tile, dict) or tile.get('kind') != 'PLANT':
+            continue
+        if tile.get('crop') != 'WHEAT':
+            continue
+        # Already covered: a second FERTILIZE would burn a unit for nothing.
+        if int(tile.get('fertilized_until_day', -1) or -1) >= day:
+            continue
+        if day - int(tile.get('planted_day', day) or day) != FERTILIZE_WHEAT_AGE:
+            continue
+        units[index] = ['FERTILIZE']
+
+    action['farmer'] = units[0] if units else ['PASS']
+    action['hands'] = units[1:]
+    return action
+
+
+# ----------------------------------------------------------------------------
 # Herd swap: rewrite the recording itself, once, at import.
 #
 # The route's animal program is 8 cows and 4 sheep, which is up to 176 milk and
@@ -1107,6 +1161,7 @@ def agent(obs):
         action = _melon_patch(action, obs, step)
         action = _eager_sell(action, obs, step)
         action = _meter_premium(action, obs, step)
+        action = _fertilize_wheat(action, obs, step)
         return _match_hands(action, obs)
     except Exception:
         farm = _farm_view(obs, _player(obs))
