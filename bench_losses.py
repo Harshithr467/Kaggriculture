@@ -16,6 +16,25 @@ have flipped a game I actually lost, and what would it have cost me elsewhere?
     python bench_losses.py 55563850 --all --sweep LOOKAHEAD 3 4
     python bench_losses.py 55563850 --verify              # is the harness faithful?
 
+IT DETECTS BREAKAGE. IT DOES NOT RANK COMPARABLE AGENTS. Measured directly:
+MiMi's lifted route scored 233W-127L here against our agent's 209W-151L -- a
+convincing +24 wins -- and then lost to that same agent 8-32 on twenty held-out
+seeds, both seats. The benchmark was not merely noisy, it had the sign wrong.
+
+The reason is what it measures. Replaying fixed opponent tapes on their own
+recorded seeds asks "how would this agent have done in these 360 historical
+games", which rewards a bigger absolute bank against a field that cannot react.
+Win probability against a live adaptive opponent is a different quantity. Note
+the churn in that run -- 110 losses flipped AND 72 wins given back -- which is
+the signature of an agent that is DIFFERENT rather than better.
+
+So: trust a large negative here (the sale meter at -51, tomato at -146,
+eager-selling wheat at -208 were all real, mechanically explained, and
+reproduced). Do not promote on a positive. Anything that looks like an
+improvement has to survive held-out paired-seat games against the incumbent,
+which is the veto test Rayk Kretzschmar's notebook recommends and the one that
+caught this.
+
 USE --since, AND USE --all.
 
 A submission enters at 600 and climbs, so its early games are against weak

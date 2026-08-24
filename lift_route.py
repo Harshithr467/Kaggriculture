@@ -17,9 +17,25 @@ those shifts are contamination that will not match a new seed's weeds.
 WHAT TO EXPECT. Lifting has a poor record: our previous attempt scored 6/16, and
 Kaito Fukami reports a frozen top trace scoring 0/50. The usual cause is cash --
 a day-0 order that spends nearly the whole $3,000 float depends on what the
-opponent does to the wheat price, and one failed order derails the season. So
-treat a lifted route as a hypothesis, test it on the full benchmark with the
-incumbent as a veto opponent, and expect it to lose.
+opponent does to the wheat price, and one failed order derails the season.
+
+MEASURED, 2026-08-24, four teams lifted with this script and played against the
+incumbent on three pinned seeds both seats:
+
+    ReCurSiON       (#17)   0/6    -4,442
+    Ryo Hasegawa    (#1)    0/6    -6,486
+    Arman Tuganbaev (#4)    0/6   -11,098
+    MiMi            (#5)    6/6    +1,632
+
+Note that RANK DOES NOT PREDICT TRANSPLANTABILITY -- the top-rated agent's route
+was the second worst of the four.
+
+And MiMi, the one that looked good, did not survive the test that counts. It
+scored 233W-127L on the 360-game replay benchmark against the incumbent's
+209W-151L, then lost to that same incumbent 8-32 on twenty HELD-OUT seeds. Three
+seeds is not a screen, it is a coin flip you get to keep flipping. Decide on
+seeds the candidate has never seen, or this script will hand you a regression
+wearing a +24.
 """
 import argparse
 import base64
