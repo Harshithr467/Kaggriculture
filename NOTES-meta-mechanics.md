@@ -1,5 +1,44 @@
 # What the top notebooks know, and what this branch does about it
 
+## Result: every shipped edge validated on held-out seeds
+
+`ladder.py` plays live code against live code, both seats, on seeds the
+candidates were never screened on, with the town on its own RNG stream. Each
+edge entered against the version of the agent without it. Two disjoint blocks:
+
+| ablation | seeds 9000-9009 | seeds 9100-9119 | combined |
+| --- | ---: | ---: | ---: |
+| shipped vs LOOKAHEAD=1 | 20-0 | 38-2 | **58-2** |
+| shipped vs no eager seller | 11-1 | 32-4 | **43-5** |
+| shipped vs no carrot swap | 11-1 | 29-7 | **40-8** |
+| shipped vs no price gate | 11-3 | 14-8 | **25-11** |
+
+Consistent ordering across both blocks: lookahead 3 is the largest edge, then
+the eager seller, then the carrot swap, then the price gate. The gate is the
+weakest at 25-11 with a mean margin of +58 to +244 — small, but on the right
+side of zero and significant (p ≈ 0.014 on the decisive games).
+
+Pairings summing to fewer than the full game count are exact ties, and they are
+legitimate between near-identical variants: when the price gate picks wheat, the
+gated and ungated agents make identical decisions and play an identical game.
+Ties between genuinely *different* agents are the bug signature described below.
+
+**I predicted this would come out the other way** — that the old benchmark's
++3 and +12 figures were noise and reverting would be the honest gain. Wrong.
+`bench_losses` is unreliable for *ranking* comparable agents, which is not the
+same as being wrong about our own agent's edges. I conflated the two.
+
+Two harness bugs found and fixed along the way, both worth remembering:
+
+- `benchmark_pool` caches one module per file path, so entrants differing only
+  by an override shared a namespace and every variant matchup silently played
+  itself. Tell: an exact 0.0 mean margin and identical records across variants.
+- `fixed_town` materially changes answers. MiMi's route went 10-10 against our
+  agent with it and 8-32 without. For comparing variants it is the correct
+  control; for estimating real win rate the live dynamics are what happen.
+  Report both.
+
+
 Four notebooks pulled on 2026-08-23:
 
 | Notebook | Author | What it actually contains |
