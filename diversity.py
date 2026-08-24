@@ -17,6 +17,27 @@ Agreement near 100% means the second slot buys nothing: it wins and loses the
 same games. What you want from a hedge is a candidate that loses games the
 incumbent wins and wins games the incumbent loses -- disagreement -- while
 staying close to it on overall win rate.
+
+MEASURED, 2026-08-24, against rayk_c95 / kaito v25 / ReCurSiON / Arman over
+seeds 9200-9209, both seats:
+
+    shipped              69-11  86.2%
+    slot 2 (no gate)     69-11  86.2%    agreement with shipped 100.0%
+    MiMi lifted          60-20  75.0%    agreement with shipped  73.8%
+
+    LOOKAHEAD 2 / 4, EAGER_FLOOR_FRAC 0.15 / 0.5   all 69-11, all 100.0%
+
+So the two live submissions are not merely similar, they are indistinguishable
+against the field: zero games either one takes alone. And NO SMALL PARAMETER
+CHANGE DECORRELATES -- every setting near the tuned one plays the same games the
+same way. The settings that do decorrelate (LOOKAHEAD=1 at 95% agreement, no
+eager seller at 75%) decorrelate only by being worse.
+
+The one genuinely decorrelated candidate of decent strength was MiMi, and that
+is another team's lifted route, which we do not submit under our own name.
+
+Conclusion: this agent has no cheap hedge. Diversifying the second slot needs a
+structurally different agent, which is a build project, not a constant sweep.
 """
 import argparse
 import collections
