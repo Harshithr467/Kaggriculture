@@ -85,22 +85,41 @@ def parse_seeds(text):
 
 # ---------------------------------------------------------------- one game
 
+_LOADED = {}
+
+
+def _load(label, path, overrides):
+    """One module object per ENTRANT, not per file.
+
+    benchmark_pool caches a module per path, which is fatal here: two entrants
+    that differ only by an override share a file, so building the second
+    rebinds the constants the first is already holding. Every variant matchup
+    then plays itself -- the symptom is an exact 0 mean margin and identical
+    records across variants. Load the source into its own module namespace.
+    """
+    import importlib.util
+
+    if label in _LOADED:
+        return _LOADED[label]
+    spec = importlib.util.spec_from_file_location(
+        f"ladder_entrant_{abs(hash(label)):x}", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for name, value in overrides:
+        if not hasattr(module, name):
+            raise SystemExit(f"{path} has no constant {name!r}")
+        setattr(module, name, value)
+    _LOADED[label] = module.agent
+    return module.agent
+
+
 def _job(args):
     (la, pa, oa), (lb, pb, ob), seed, seat = args
-    import benchmark_pool as BP
     import fixed_town
     from kaggle_environments import make
 
     fixed_town.enable()
-
-    def build(path, overrides):
-        module = BP._get_agent(path)
-        BP._restore(module, BP._pristine_state[path])
-        for name, value in overrides:
-            BP.apply_override(module, name, value)
-        return module.agent
-
-    a, b = build(pa, oa), build(pb, ob)
+    a, b = _load(la, pa, oa), _load(lb, pb, ob)
     pair = [a, b] if seat == 0 else [b, a]
     env = make("kaggriculture", configuration={"seed": seed}, debug=False)
     env.run(pair)
