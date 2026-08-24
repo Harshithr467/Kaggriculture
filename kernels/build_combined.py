@@ -609,6 +609,25 @@ def _mkt_price(item, inventory):
 # $1,456 and floor 0.0 loses $3,761, with the opponent's score unmoved, so it
 # is pure self-harm. Without this layer a swapped herd's eggs would sit in the
 # shed until the buzzer and score nothing.
+# DO NOT ADD FERTILIZER OR WHEAT TO THIS TUPLE. Both were tried on 360 games
+# against a control of 209W-151L (58.1%):
+#
+#     +FERTILIZER            58W-302L   16.1%   -4,940/game   net -151 wins
+#     +FERTILIZER, +WHEAT     1W-359L    0.3%  -81,929/game   net -208 wins
+#
+# The wheat case gives back ALL 195 wins, and the mechanism is the feed chain:
+# the shed's wheat feeds the herd, so selling the "spare" starves the animals to
+# death. It is the same trap FEED_BUY_CEILING fell into from the other side.
+#
+# Fertilizer fails for the neighbouring reason. Its price only ever falls -- no
+# shop lists it and TOWN_CENTER_PRODUCTS excludes it, so nothing drains it --
+# which made "sell it sooner" look free. But FERTILIZE spends fertilizer, the
+# route fertilizes 100% of its strawberry, and a worker gets its unit by picking
+# up from the shed. Dumping the shed's stock early starves that, and fertilized
+# strawberry yields two units per production instead of one.
+#
+# The rule both cases share: an item the FARM consumes is not surplus just
+# because the market values it at 13.
 EAGER_SELL_ITEMS = ('EGG', 'CARROT', 'TOMATO')
 
 # Sell that stock while a unit still fetches this fraction of base. None
