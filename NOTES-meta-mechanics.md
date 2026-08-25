@@ -1,5 +1,50 @@
 # What the top notebooks know, and what this branch does about it
 
+## Competition mechanics, read from the official pages 2026-08-24
+
+Quoted from Overview > Evaluation and the Rules page, because we had been
+guessing at these and one guess was wrong.
+
+**Submissions.** Five per day. "Only the latest 2 submissions are tracked. The
+latest 2 submissions are also used for final leaderboard evaluation." Rules
+2.2.b: "You may select up to two (2) Final Submissions for judging."
+
+**The final standing takes your BEST bot, not the pair.** "On the leaderboard,
+only your best-scoring bot will be shown." So a weaker second submission
+**cannot drag the team down** — the second slot is free optionality. This is the
+answer to the question that was blocking the diversification decision, and it
+flips it: a hedge costs nothing but the slot.
+
+**Final evaluation.** "At the submission deadline, additional submissions will
+be locked. Games will continue to run for approximately two weeks to continue to
+reduce uncertainty, especially for new agents. A final Bradley-Terry tournament
+will be run on those episodes to produce the final leaderboard."
+
+**Timeline.** Entry and team-merger deadline 2026-09-23; final submission
+deadline 2026-09-30; games continue 2026-10-01 to ~10-15, then the leaderboard
+is final. So a late submission still converges — being late is not fatal.
+
+**But each new submission retires your oldest active one.** With slots [A, B],
+submitting C leaves [B, C]. Experimenting on the second slot is therefore not
+free: it burns whichever agent is currently older, and a resubmitted agent
+restarts at the default rating.
+
+**Lifted public routes are not against the rules, and I overstated this.** The
+rules prohibit *privately* sharing competition code between teams; public
+sharing is permitted and explicitly deemed open-source licensed, and external
+material is fine when "publicly available and equally accessible to all
+Participants". Replays are public. So using another team's recorded route is
+permitted — attribution is a community norm, which every notebook in this field
+observes, not a rule. Winner's obligations do require "a detailed description of
+how the winning Submission was generated", so a lifted route would have to be
+disclosed as such.
+
+**Official crop table confirms two things we measured.** Wheat max yield is
+"6 (4 unfertilized)" and carrot "4 (3 unfertilized)" — matching our measured
+wheat peak of 3.80 and the finding that fertilizing wheat is worth +2. And
+tomato is "every day x4, Max Yield 4", confirming that an ongoing crop yields
+four units in total and then dies, which is what killed the tomato swap.
+
 ## Result: every shipped edge validated on held-out seeds
 
 `ladder.py` plays live code against live code, both seats, on seeds the
