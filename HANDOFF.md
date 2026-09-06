@@ -1,7 +1,28 @@
 # Kaggriculture — full handoff
 
 Written 2026-09-06 for a fresh agent picking this work up. Everything here is
-measured in this repo unless marked otherwise. Where an early claim was later
+measured unless marked otherwise.
+
+## 0. If all you have is a single agent file, read this first
+
+**There are two different agents in this project and they are not the same
+lineage.** Getting this wrong means optimising the wrong thing.
+
+| file | what it is | strength |
+| --- | --- | --- |
+| `agent_combined.py` | the **route agent** — a frozen 720-step action tape plus adaptive layers. **This is what we actually submit.** | currently **1304.9** |
+| `main.py` | the **CMA-ES policy agent** — a live policy, no tape. Abandoned lineage. | peaked at **864**; loses **2-38** head to head |
+
+Kaggle requires the submitted file to be named `main.py`, so `agent_combined.py`
+is uploaded *as* `main.py`. The file literally named `main.py` in the project is
+the weak one. If you were handed `main.py` and it is ~75 KB of policy code with
+functions like `final_day_strategy`, you have the 864-rated agent, not the
+1305-rated one.
+
+Everything below marked with a file path refers to tooling in our repo that you
+may not have. Where that happens the **measured result is inlined**, so you can
+use the finding without the tool. Rebuild the tools if you want to re-measure —
+the promotion protocol in §10 is the part that matters, not the code. Where an early claim was later
 contradicted, both versions appear — the corrections are more useful than the
 tidy version, and several are places where a second pair of eyes might find we
 are still wrong.
@@ -51,6 +72,50 @@ some time; do not repeat that.
 - Using another team's publicly-recorded route is *permitted* (only private code
   sharing between teams is banned). Attribution is a community norm here, not a
   rule.
+
+### 1b. The live record — 442 episodes of submission 55677927
+
+This is the most important diagnostic in the document.
+
+```
+RECORD  179W-263L   40.5%
+  our avg bank   86,956      opponent avg   89,114
+  in wins        86,244  vs  80,104
+  in losses      87,441  vs  95,246
+```
+
+Split by episode age (oldest to newest quarter):
+
+| slice | games | win rate | our mean bank |
+| --- | ---: | ---: | ---: |
+| oldest 25% | 90 | **56.7%** | 89,712 |
+| 2nd 25% | 90 | 36.7% | 83,551 |
+| 3rd 25% | 90 | 35.6% | 86,676 |
+| newest 25% | 92 | **35.9%** | 84,350 |
+
+**Read this carefully: our win rate halved while our production did not move.**
+We bank ~85–90k in every slice, early and late, winning and losing. What changed
+is the opposition — in losses they bank **95,246** to our 87,441.
+
+The agent did not degrade. **The field overtook it.** That is the entire story of
+the 400-point drop, and it explains why every market-layer and timing experiment
+we ran came back neutral or negative: we were polishing the margins of a design
+that had already been outgrown. The deficit is roughly **8,000 coins a game of
+production**, not a subtlety of sale timing.
+
+Loss structure (the shape of the problem):
+
+```
+10 losses under $305      -44, -70, -121, -169, -178, -240, -241, -245, -252, -304
+worst losses            -35,670  -35,668  -32,164  -29,897  -28,630
+biggest wins            +139,539  +86,910  +63,004  +53,078   <- all from the OLDEST episodes
+```
+
+Two separate populations. A large tail of games lost by **under $305** — those
+are winnable by any consistent small edge. And a tail of **−30,000 structural
+mismatches** against builds we simply cannot match. Note also that every one of
+our biggest wins is from the earliest episodes, against weak opponents we no
+longer meet.
 
 ---
 
@@ -334,11 +399,21 @@ python ladder.py --seeds 9300-9319 --workers 10 --pool \
 Honestly: we do not know, and our track record is 0 for 11. The two things we
 would bet on, in order:
 
-**A. The route is stale and that is most of the 400-point decay.** Refresh it
-from current replays. The counter-evidence is that lifting failed 3 of 4 times
-in August — but a lifted tape without its owner's adaptive market layer is not
-that owner's agent, and we never tried lifting a route *and* rebuilding a market
-layer around it. That gap has not been tested.
+**A. The route is stale and that is most of the 400-point decay.** Now measured,
+not guessed: §1b shows production flat at ~86k across 442 episodes while the
+field moved to ~95k in the games we lose. Refresh the route from current
+replays. The counter-evidence is that lifting failed 3 of 4 times in August —
+but a lifted tape without its owner's adaptive market layer is not that owner's
+agent, and we never tried lifting a route *and* rebuilding a market layer around
+it. That gap has not been tested.
+
+**A2. The ~8,000-coin production gap is the target, and it is specific.** Not
+"be better" — find 8,000 coins a game of output. For scale, the four edges we
+ship are worth a few hundred to ~2,000 each, and the 10 losses under $305 in
+§1b would flip on almost nothing. There appear to be two distinct problems: a
+large population of near-misses that a small consistent edge would convert, and
+a −30,000 tail that needs a different farm entirely. **Attack the near-misses
+first** — they are cheap and there are many.
 
 **B. The action budget is the binding constraint and we never attacked it.**
 6,349 live actions a game, 666 of them no-ops, 323 PASS, and every idea that
