@@ -394,30 +394,123 @@ python ladder.py --seeds 9300-9319 --workers 10 --pool \
 
 ---
 
-## 11. If we had to guess where the win is
+## 11. Where to go next
 
-Honestly: we do not know, and our track record is 0 for 11. The two things we
-would bet on, in order:
+Our track record is 0 for 11, so treat all of this as hypotheses with measured
+premises, not as a plan that is known to work. Three tracks, in the order we
+would spend time on them.
 
-**A. The route is stale and that is most of the 400-point decay.** Now measured,
-not guessed: §1b shows production flat at ~86k across 442 episodes while the
-field moved to ~95k in the games we lose. Refresh the route from current
-replays. The counter-evidence is that lifting failed 3 of 4 times in August —
-but a lifted tape without its owner's adaptive market layer is not that owner's
-agent, and we never tried lifting a route *and* rebuilding a market layer around
-it. That gap has not been tested.
+### Track A — the route agent (the one that is competitive now)
 
-**A2. The ~8,000-coin production gap is the target, and it is specific.** Not
-"be better" — find 8,000 coins a game of output. For scale, the four edges we
-ship are worth a few hundred to ~2,000 each, and the 10 losses under $305 in
-§1b would flip on almost nothing. There appear to be two distinct problems: a
-large population of near-misses that a small consistent edge would convert, and
-a −30,000 tail that needs a different farm entirely. **Attack the near-misses
-first** — they are cheap and there are many.
+**A1. The tape is stale, and that is measured, not guessed.** §1b: production
+flat at ~86k across 442 episodes while the field moved to ~95k in the games we
+lose. The tape was lifted around 2026-08-09 and the top 15 has turned over
+almost completely twice since.
 
-**B. The action budget is the binding constraint and we never attacked it.**
-6,349 live actions a game, 666 of them no-ops, 323 PASS, and every idea that
-would pay needs actions we do not have. Nobody has tried re-planning the route's
-*movement* to free turns, as opposed to substituting individual actions. That is
-the one direction where the "0 for 8" rule does not obviously apply, because it
-does not add assets — it reallocates turns.
+**The target is specific: ~8,000 coins a game of production.** Not "be better".
+For scale, the four edges we ship are worth a few hundred to ~2,000 each.
+
+**A2. The untested variant: lift a current route AND rebuild the market layer
+around it.** Every failed lift (ReCurSiON 0/6, Ryo 0/6, Arman 0/6, MiMi 6/6 then
+8-32) kept *our* wrapper bolted onto *their* tape. A tape without its owner's
+adaptive market layer is not that owner's agent, which is a plausible reason the
+rank-1 route scored 0/6. Rayk Kretzschmar's public diary did exactly this
+separation deliberately — refresh the field tape, then build a *new* market
+controller for it (his C68 and C71) — and it was where his gains came from.
+**Nobody here has tried it.**
+
+**A3. Two distinct loss populations, attack the cheap one first.** §1b: ten
+losses under **$305** (down to −$44), and a separate tail of **−30,000**
+structural mismatches. The near-misses flip on almost nothing; the tail needs a
+different farm. Do not average them together — they are different problems.
+
+### Track B — the CMA-ES policy agent (the better architecture long run)
+
+Currently 864 and losing 2-38 to the route agent, so it is not the play for a
+24-day deadline. But the structural case for it is strong and worth stating,
+because whoever works on this after the deadline should be investing here:
+
+- **The route agent has a hard ceiling and a decay clock.** Its value is that
+  someone else's plan is baked in. It cannot improve on its own — the only moves
+  are re-lift (3 of 4 failed) or add layers (**0 for 8**, because the tape has no
+  idle capacity). And it goes stale by construction: §1b is what that looks like.
+- **A policy has no such ceiling.** Improvements generalise across game states
+  instead of being pinned to one recorded season.
+- **The evidence that it accepts improvement:** the day-29 endgame block added to
+  it scored **37-3 against its own parent, +5,269 a game** — the largest single
+  gain anyone produced in this project. The identical idea had *nowhere to go* in
+  the route agent, which already banks everything.
+
+What it needs is not subtle: **~30,000 coins a game of production** to reach
+parity. Its measured deficit against the route agent on one reference game was
+MILK −32,696 (it ran **14 cows to the route's 8 and still sold 30% less milk**),
+WHEAT −17,800 (it had essentially no wheat program, which is both revenue and
+the feed chain), and **1,027 wasted PASS turns against the route's 323**. Its
+problem is throughput and labour utilisation, not strategy.
+
+### Track C — fusing them
+
+The most interesting direction, and the one with a measured premise nobody has
+acted on. Three designs, best first.
+
+**C1. Give the policy the turns the tape wastes.** This is the strong one.
+
+We measured the route agent's action budget directly:
+
+```
+6,349 live field actions per game
+  711 audited no-ops     (11.2%)  -- CARE on a tile with no animal (442),
+                                     CARE already done today (224),
+                                     WATER on a tile with no plant (30)
+  323 PASS               ( 4.8%)
+-----
+~1,034 unit-turns a game, ~15.5% of the budget, doing nothing
+```
+
+Every idea that would pay — fertilizing wheat (**~12,000 a game**), reclaiming
+CARE turns, town-adaptive production — died on the same wall: *the tape has no
+spare actions*. But **15.5% of its actions are already spare; they are just
+spent on nothing.**
+
+The fusion: run the tape as the default, and when a unit's scheduled action
+would be a **verified no-op** (check the engine's own precondition — the code is
+in `wasted_actions.py` and the preconditions are listed in §5), hand that unit's
+turn to the policy for that step.
+
+Why this is different from all eight failures: it **does not add actions and does
+not remove any**. The tape's real work is untouched, so the choreography cannot
+desync — which was the mechanism behind melon patch, geese, cow swap and the
+lifted routes. It only replaces actions that provably do nothing.
+
+Caveat, stated honestly: a worker doing a no-op CARE is usually *parked somewhere
+useless*, so the policy will often need to spend the turn moving before it can do
+anything. We measured that only ~38 of the 711 no-ops sit on a tile where an
+immediate useful action exists. So the gain is not 711 turns of free work — it is
+711 turns of *freedom*, and the policy has to earn the rest back through better
+positioning. That is exactly the kind of thing a policy is good at and a tape
+cannot do at all.
+
+**C2. Frozen field tape + policy market layer.** The public meta converged on
+near-identical *field* plans and differentiated on *market execution* — Rayk's
+own promotions changed ~20 field turns and **112 market turns**. Our market
+orders are frozen in the tape. Replacing just the market half with a live policy
+is a clean split along a seam the game already has, and it is what C68/C71 did.
+Lower risk than C1, smaller ceiling.
+
+**C3. Tape as a warm start for CMA-ES.** Use the tape's behaviour as an
+imitation target, then let CMA-ES improve from there — the policy inherits a
+competitive farm instead of learning one from scratch, which is where its 30,000
+coin deficit comes from. This is the principled long-run answer and much too
+slow for 24 days.
+
+### If you only do one thing
+
+**Before the deadline:** A2 (lift a current route *and* rebuild its market
+layer). It attacks the measured problem and it is genuinely untested.
+
+**If there is time for two:** add C1. It is the only idea we found that
+sidesteps the 0-for-8 wall rather than running into it, and its premise —
+15.5% of actions wasted — is measured rather than assumed.
+
+**After the deadline, or if you have longer:** Track B. The route agent is a
+rented lead and the rent goes up every week.
