@@ -98,6 +98,12 @@ Dumps one player's complete economic policy from a single replay. Replays record
 **both** seats' private state — shed, seeds, per-worker inventories — plus every
 market order issued, so an opponent's strategy is almost fully recoverable.
 
+### `audit_fertilizer.py`
+Counts, per team, which crops get `FERTILIZE` actions and the mean units per
+`HARVEST`. Commands carry no coordinate — a worker acts on the tile it stands on
+— so it pairs each command with that worker's recorded position. This is how we
+found that the rank-1 agent fertilizes wheat ~14 times a game and we never did.
+
 ### `verify_market_model.py`
 Confirms the environment Kaggle runs uses the same price curves as the local
 package (it does: 4,059 inventory/price points across 25 live episodes, zero
@@ -153,9 +159,16 @@ Falsified — do not retry without a new mechanism:
 | Per-worker territories (serpentine blocks) | 9/24, −883 |
 | Re-weight animal jobs to raise tending | 1/12, −7,683 |
 | Copy rank-1's build (no carrot/tomato, strawberry 36, three quadrants) | 29/48, +216 — a wash |
+| Move `LATE_WHEAT_PIVOT_DAY` earlier | +3,482 on seeds 150–155, −1,206 on 160–167 — noise |
+| Fertilize wheat and carrot (a genuine +100% per tile) | 0/16, −14,092 at the loosest threshold |
 
 The pattern: every win came from finding a **mis-set number in our own code**,
-usually after instrumenting the agent. Copying stronger opponents failed six
+usually after instrumenting the agent. Copying stronger opponents failed seven
 times; restructuring the scheduler failed five. Diagnostic metrics improving is
 not evidence — the crew-sizing change improved every intermediate metric and
 lost 24 games straight.
+
+Fertilizing wheat is the sharpest example of why an opponent's move is not
+evidence on its own. The mechanic is real, the doubling is real, and the rank-1
+agent does it every game — and copying it still lost 16 games out of 16. Our
+action economy is not theirs.

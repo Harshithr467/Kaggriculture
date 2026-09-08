@@ -1,0 +1,64 @@
+probing 55 constants, 109 perturbations, 8 games each = 880 games
+identical scores on identical seeds mean identical games
+
+
+NO EFFECT either direction -- dead knob: 24
+  ANIMAL_MARGIN_BIAS.COW         now 1.0        0.6->0/8  1.6->0/8
+  ANIMAL_MARGIN_BIAS.GOOSE       now 1.0        0.6->0/8  1.6->0/8
+  ANIMAL_MARGIN_BIAS.SHEEP       now 2.7289     1.6373399999999998->0/8  4.36624->0/8
+  ANIMAL_TOTAL_CAP.4             now 15         9->0/8  24->0/8
+  ENDGAME_DAYS.CARROT            now 2          1->0/8  3->0/8
+  GLUT_ALLOWANCE.CARROT          now 520        312->0/8  832->0/8
+  GLUT_ALLOWANCE.EGG             now 1000000    300->0/8  2000->0/8
+  GLUT_ALLOWANCE.TOMATO          now 300        180->0/8  480->0/8
+  GLUT_ALLOWANCE.WHEAT           now 1000000    300->0/8  2000->0/8
+  LAND_EARLIEST_DAY.2000         now 5          3->0/8  8->0/8
+  LAND_EARLIEST_DAY.4000         now 8          5->0/8  13->0/8
+  LAST_USEFUL_ANIMAL_DAY.GOOSE   now 23         14->0/8  29->0/8
+  NONONGOING_FERT_MARGIN         now 99.0       59.4->0/8  158.4->0/8
+  PREMIUM_RESERVE_CAP            now 0.22       0.132->0/8  0.35200000000000004->0/8
+  PRESSURE_SCALE.STRAWBERRY      now 6.0        3.5999999999999996->0/8  9.600000000000001->0/8
+  RESERVE_FRAC.CARROT            now 0.4        0.24->0/8  0.6400000000000001->0/8
+  RESERVE_FRAC.FERTILIZER        now 0.35       0.21->0/8  0.5599999999999999->0/8
+  RESERVE_FRAC.MELON             now 0.78       0.46799999999999997->0/8  1.2480000000000002->0/8
+  RESERVE_FRAC.MILK              now 0.65       0.39->0/8  1.04->0/8
+  RESERVE_FRAC.STRAWBERRY        now 0.7        0.42->0/8  1.1199999999999999->0/8
+  RESERVE_FRAC.TOMATO            now 0.55       0.33->0/8  0.8800000000000001->0/8
+  RESERVE_FRAC.WHEAT             now 0.45       0.27->0/8  0.7200000000000001->0/8
+  RESERVE_FRAC.WOOL              now 0.65       0.39->0/8  1.04->0/8
+  TRAVEL_COST                    now 8.0        4.8->0/8  12.8->0/8
+
+BARELY responds (1 game of 8): 1
+  ENDGAME_DAYS.MELON             now 6          4->1/8  10->0/8
+
+responds: 30
+  ANIMAL_TOTAL_CAP.1             now 14         8->0/8  22->2/8
+  ANIMAL_TOTAL_CAP.2             now 14         8->4/8  22->4/8
+  ANIMAL_TOTAL_CAP.3             now 14         8->4/8  22->4/8
+  ENDGAME_DAYS.STRAWBERRY        now 5          3->6/8  8->5/8
+  ENDGAME_DAYS.TOMATO            now 4          2->2/8  6->6/8
+  ENDGAME_DAYS.WHEAT             now 2          1->4/8  3->7/8
+  FUTURE_DEMAND_SCALE            now 1.2        0.72->8/8  1.92->8/8
+  GLUT_ALLOWANCE.FERTILIZER      now 260        156->4/8  416->4/8
+  GLUT_ALLOWANCE.MELON           now 150        90->8/8  240->8/8
+  GLUT_ALLOWANCE.MILK            now 38         23->8/8  61->8/8
+  GLUT_ALLOWANCE.STRAWBERRY      now 30         18->4/8  48->4/8
+  GLUT_ALLOWANCE.WOOL            now 30         18->8/8  48->8/8
+  GLUT_SENSITIVITY.CARROT        now 0.3        0.18->2/8  0.48->4/8
+  GLUT_SENSITIVITY.MELON         now 1.15       0.69->2/8  1.8399999999999999->0/8
+  GLUT_SENSITIVITY.STRAWBERRY    now 0.95       0.57->5/8  1.52->5/8
+  GLUT_SENSITIVITY.TOMATO        now 0.55       0.33->0/8  0.8800000000000001->3/8
+  GLUT_SENSITIVITY.WHEAT         now 0.15       0.09->8/8  0.24->6/8
+  LAND_EARLIEST_DAY.1000         now 3          2->0/8  5->4/8
+  LAST_USEFUL_ANIMAL_DAY.COW     now 18         11->4/8  29->3/8
+  LAST_USEFUL_ANIMAL_DAY.SHEEP   now 20         12->8/8  29->3/8
+  LATE_WHEAT_PIVOT_DAY           now 18         11->8/8  29->8/8
+  MARGINAL_ACTION_VALUE          now 33.5222    20.113319999999998->8/8  53.63552->0/8
+  OUT_OF_ZONE_FACTOR             now 0.4        0.24->8/8  0.6400000000000001->8/8
+  PRESSURE_SCALE.CARROT          now 10.0       6.0->4/8  16.0->1/8
+  PRESSURE_SCALE.MELON           now 5.0        3.0->0/8  8.0->2/8
+  PRESSURE_SCALE.TOMATO          now 8.0        4.8->3/8  12.8->0/8
+  PRESSURE_SCALE.WHEAT           now 12.0       7.199999999999999->4/8  19.200000000000003->7/8
+  SHOP_UNLOCK_MODEL              now False      True->8/8
+  STICKY_FACTOR                  now 1.55       0.9299999999999999->8/8  2.4800000000000004->8/8
+  TRAVEL_DIVISOR                 now 16.6979    10.01874->8/8  26.71664->8/8

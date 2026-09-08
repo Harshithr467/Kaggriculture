@@ -1,0 +1,1477 @@
+"""Build the combined agent: the public V14 route + our counters.
+
+What can and cannot be combined, measured rather than assumed:
+
+* The route's PLAN (farmer and hand actions for all 720 turns) is a recording.
+  It has no job scoring, no crop targets and no herd sizing, so none of our
+  tuned constants -- TRAVEL_DIVISOR, MARGINAL_ACTION_VALUE, ANIMAL_MARGIN_BIAS,
+  ANIMAL_TOTAL_CAP -- have anything to act on. They tune a policy engine the
+  route does not contain.
+
+* The route's SALE TIMING is adaptive, and that is the seam. Stock V14 advances
+  its own scheduled premium sales by exactly one step, which is why two clones
+  tie exactly: both preempt by the same amount. Advancing further wins every
+  game against stock, because the finite purses (wool 59 units, milk 76, melon
+  158) go to whoever reaches them first.
+
+      seeds 720-727   lookahead 2: 16/16   lookahead 4: 16/16
+      seeds 730-737   lookahead 2: 15/16   lookahead 3: 15/16   lookahead 4: 15/16
+
+  Falls off at 8 (13/16), so the useful range is 2 to 4 and 3 is the middle of
+  a measured plateau rather than the peak of a spike.
+
+* The route's sale SIZING is not adaptive at all. Prices are recomputed per
+  unit, so a 54-unit order walks the ladder down and every unit after the first
+  fetches less. Measured over a full route-vs-route game on seed 600, the
+  schedule walks its own core products into the floor and keeps selling:
+
+      day 21   MILK $1     MELON $1
+      day 24   STRAWBERRY $1
+      day 29   the route sells 54 MILK, at $5 a unit
+
+  The obvious read is that it should meter: the town eats every product every
+  four steps, so a crashed price recovers on its own -- wool goes $1 -> $72 ->
+  $133 -> $174 -> $196 over four days with nobody's help. THAT READ IS WRONG,
+  and expensively so. Metering scheduled sales behind a price floor, with the
+  deferred units carried forward and liquidated on the last day:
+
+      floor 0.00 x base (control)  15/16   our 92,252   theirs  90,845
+      floor 0.25 x base             0/16   our 68,396   theirs 120,160
+      floor 0.40 x base             0/16   our 65,824   theirs 121,475
+      floor 0.55 x base             0/16   our 58,442   theirs 125,336
+
+  Not a wobble: zero wins, and the opponent gets $30k RICHER as we get $26k
+  poorer. The price is at $1 because both players are racing each other down a
+  shared ladder, and every unit held back is a unit of the ladder conceded. The
+  crash is not a mistake to be avoided, it is the outcome of a race, and the
+  only thing that pays is reaching the top of the ladder first.
+
+  So the third layer runs the other way: sell pure-output stock the moment it
+  is worth selling, ahead of the recorded schedule. WHEAT and FERTILIZER are
+  excluded, because the route's shed wheat is animal feed and its fertilizer
+  is an input -- a seller that emptied the shed would sell the herd's dinner.
+
+* The route's HERD is correct, and the argument that it is not is a trap worth
+  writing down. Price decay shapes differ wildly, and the revenue available
+  from I0 before a product's price hits $1 looks damning for the route's
+  choices:
+
+      EGG        $77,221     never halves      (log, target 0.20)
+      MELON      $26,485     dead at 159 units (sq,  target 3.60)
+      WOOL        $7,928     dead at  60 units (sq,  target 3.20)
+      MILK        $6,181     dead at  77 units (linear, target 1.60)
+
+  The route buys 8 cows and 4 sheep and no geese, so it aims at the two
+  smallest purses on the board while EGG -- flat curve, and 300 units SHORT at
+  $68 by day 29 because the town eats eggs all season and nobody restocks --
+  goes untouched. Swapping the herd to geese is a clean rewrite: BUILD_COOP and
+  BUILD_PASTURE both cost nothing, FEED/CARE/HARVEST are animal-agnostic, and
+  a goose is cheaper than a cow and yields daily from day 4 instead of every
+  other day from day 8. It works mechanically -- 13 coops, 9 geese, 281 eggs
+  sold -- and it loses 0 of 16, at -$47,421.
+
+  THAT TABLE IS A SNAPSHOT, NOT A BUDGET. The town consumes every product every
+  four steps for the whole season, so the purses refill continuously; the
+  "dead at 77 units" figure describes one instant, not thirty days. What
+  actually decides an animal is its yield times its base price:
+
+      COW    $400 -> 11 productions x2 =  22 MILK @ $160 ~ $3,520
+      SHEEP  $500 ->  8 productions x2 =  16 WOOL @ $200 ~ $3,200
+      GOOSE  $300 -> 26 productions x2 =  52 EGG  @ $50  ~ $2,600, and capped
+                     at 4 held, so it needs harvesting every other day to hit
+                     even that -- we got 31 eggs a goose, not 52
+
+  Cows win, and vacating milk and wool hands the opponent an uncontested run at
+  both. Static purse size was the wrong statistic.
+
+* The route's CROPS have exactly one gap the schedule can absorb, and it is
+  the only structural change here that survived. The route grows WHEAT, MELON
+  and STRAWBERRY; it never grows CARROT, TOMATO or EGG, so in a field of route
+  clones the town eats those three all season with nobody restocking. A
+  route-vs-route game ends with carrot 408 units short at $65 while wheat sits
+  at $42.
+
+  There is no slack to exploit that with -- the route is 95% busy across 6,650
+  unit-turns and acts on every one of its 75 unlocked tiles -- so the only
+  lever is substitution, and the crop calendars barely overlap:
+
+      WHEAT   waters at ages 2-4, tile survives to age 5
+      CARROT  waters at ages 2-3, tile starts decaying at age 4
+
+  128 of the route's 143 wheat plantings are lifted at age 4, where a carrot
+  would already be rotting. The other 13 are the end-of-season batch, planted
+  day 26 and lifted day 29, watered at ages 2 and 3 -- a carrot's entire yield
+  window. Those 13 swap cleanly, and the set is identical on seeds 600, 611 and
+  622, so it is schedule-driven rather than seed-driven.
+
+      seeds 600-615   31/32 -> 32/32,  our score +$602, theirs +$75
+      seeds 700-719   +$783 a game, sd $1,762, t = 2.81, better in 26 of 40
+
+  Both numbers move the same way and the opponent's does not move at all,
+  which is what a change that adds revenue rather than taking it looks like.
+
+* The MELON OPENING, which is the single biggest gap in the live record, does
+  NOT transplant. It is worth writing down at length because it is the most
+  expensive-looking opportunity on the board and it is a trap.
+
+  Across 39 live losses melon is the primary cause in 17 of them, and the gap is
+  +13,584 in fifteen separate games against fifteen different opponents. The
+  same number every time, because it is structural: they plant 12 melons on day
+  0 and harvest into a virgin $250 market on day 10; we plant 5, then 14 more on
+  days 10-11 that ripen on day 20 into a market that died on day 11 and fetch
+  about $500 in total.
+
+  Copying it needs ground, seed and hands, and the route has none of the three:
+
+    GROUND. Of NW's 25 tiles, 19 are planted and the other 6 are pastures with
+    animals on them. An extra melon must displace a crop, and the cheapest are
+    three tiles the route plants with STRAWBERRY on day 3 -- but strawberry is
+    our single best market at about $244 a unit, so per tile-day it is a wash
+    before any costs.
+
+    SEED. The route LOOKS like it has spare melon seed: it orders 8 on day 0 and
+    plants 5. It does not. The day-0 order is cash-clipped -- 5 requested at step
+    0, only 2 clear -- and the farm is on $4 by day 1 and never has $80 spare
+    again until day 5, by which point a melon ripens on day 15 and misses the
+    window. Requested quantities are not delivered quantities. The first version
+    of this layer planted nothing at all for exactly this reason.
+
+    HANDS. Hiring is the one clean insertion point, because hands are re-hired
+    nightly at fib(hires_today) and the route addresses them by index, so one
+    more hand than it expects is ours outright. It costs $8 on day 0 and $1-$21
+    a day through day 9 -- but $610 on day 10, when the roster hits 14.
+
+  All of it was built and it works mechanically: three melons planted on days
+  1-3, grown to the full 6 units each, harvested on day 11 and sold on day 11.
+  It still loses every game.
+
+      MELON_PATCH ()                      100.0% wins   our 92,959
+      MELON_PATCH 3 tiles, no seed         56.2% wins   our 91,328
+      MELON_PATCH 3 tiles, funded          0.0% wins   our 85,172, theirs 107,591
+
+  Both halves lose independently. Merely carrying the extra hand costs $1,631
+  and forty-four points of win rate in hire fees. Funding the seed by dropping
+  one of the four day-0 sheep costs another $6,156 and hands the opponent
+  $14,632 -- one sheep is roughly 16 wool at $200, and the three strawberry
+  tiles were worth more than the melon that replaced them.
+
+  The conclusion is the same one the lifted-route experiment reached from the
+  other direction: the day-0 melon opening is not a module. It comes bundled
+  with 2 cows instead of 1, 2 sheep instead of 4, all four quadrants, and
+  strawberry displaced to land we never buy. Copying one piece of a plan into a
+  plan built on different assumptions costs more than it gains.
+
+* EVERY SETTING HERE RE-VALIDATED on 226 current-meta episodes with the town
+  pinned to each game's recorded shop draw (bench_losses.py --since 94249446).
+  The earlier numbers came from the first 138 episodes -- a submission's
+  climbing phase, 72.4% against opponents it no longer meets -- with the town
+  free to drift. Net wins against the shipped configuration:
+
+      CARROT_SWAP on            +12   (15 gained, 3 lost)
+      EAGER_FLOOR_FRAC off      -51   so the seller is worth +51
+      PASTURE_TILT on            -2
+      MELON_PATCH on            -99
+      HERD_SWAP to geese       -105   (0W-226L, -$44,912 a game)
+
+  LOOKAHEAD was re-checked on the LIVE pool instead, since a frozen opponent
+  cannot judge preemption: 3 scores 96.9%, against 87.5% at 2 and 90.6% at both
+  4 and 5. A real peak, worse in both directions.
+
+* WHY SMALL GAINS ARE WORTH SO MUCH HERE. The field is clones of one recording,
+  so the games are desperately tight: median margin $2,756, 39% of games decided
+  by under $2,000, 17% by under $1,000. That is why selling ~36 carrots -- worth
+  about $1,800 a game -- swings 51 wins in 226. It also says what to look for:
+  a change does not need to be large, it needs to be RELIABLE and additive.
+  Closing the $36k production gap to the route was never the task.
+
+* THE RULE, after five structural attempts. Changes to what the route BUYS or
+  OWNS all fail, because the recording holds exactly the choreography for
+  exactly the assets it expects and has no spare turns to service anything else:
+
+      melon patch (3 tiles)        -99 wins
+      goose herd                  -105 wins
+      lifted rank-2 route          6/16, -$12k a game
+      pasture tilt                  -2 wins
+      day-0 cow swap              -42k a game against rank 1
+
+  Changes that ADD output inside slots the route already visits both work:
+
+      carrot in the 13 dead slots  +12 wins
+      selling carrot/tomato/egg    +51 wins
+
+  So the search space is not "what should the farm own" -- that is welded to the
+  recording -- it is "what else can be grown or sold with the turns already
+  being spent". TOMATO and EGG are still untouched by the whole field.
+
+* NO_BUY_LAST_DAYS has no home either: the route's only late purchases are
+  HIRE orders on step 696, and hands are re-hired daily and cost a few dollars,
+  so gating them buys nothing.
+"""
+import io
+import os
+import re
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+LOOKAHEAD_VALUE = 3
+EAGER_FLOOR_FRAC_VALUE = 0.30
+HERD_SWAP_VALUE = {}
+PASTURE_TILT_VALUE = None
+
+# Meter the route's own premium output out at a rate the town can absorb.
+#
+# The measurement that motivates this (sale_race.py, seed 901 vs rayk_c95):
+# the route grows 413 strawberries and delivers them in 33 dumps of up to 30
+# units, using 33 turns out of 720. It realises 88 a unit against a base of 120.
+# Wool: 216 units in 23 dumps of up to 18, realising 159 against a base of 200.
+# Milk: 397 units in 61 dumps of up to 24, realising 65 against a base of 160.
+#
+# The town in that game drained 1.00 strawberry and 1.00 wool per turn -- more
+# than we grow. It would have bought the entire crop at close to base price if
+# we had handed it over at the rate it eats instead of in piles.
+#
+# Two things make this safe to do by ADDING sales rather than by holding the
+# scheduled ones back. First, the shed peaks at 96 of its 100 cap in a normal
+# game and overflow is destroyed, so holding stock is the dangerous direction
+# and selling early is the safe one. Second, no debt tracking is needed: SELL
+# spends from the shed and _commit_unit simply stops when the stock runs out,
+# so a scheduled dump that arrives after we have already trickled the stock out
+# just sells less. The shed is the accounting.
+#
+# MELON is excluded on purpose -- no shop in the game buys it, so only the town
+# centre takes one a day and there is nothing to meter into. WHEAT and
+# FERTILIZER are excluded because the opponent can BUY_PRODUCT them, and every
+# public experiment that retimed them regressed.
+METER_ITEMS_VALUE = ('MILK', 'STRAWBERRY', 'WOOL')
+
+# Units per turn to trickle out, as a multiple of the town's own absorption
+# rate for that item, read from the shops it has actually unlocked.
+#
+# IT DOES NOT WORK, AT ANY RATE, AND THE REASON GENERALISES. Over 360 replayed
+# games: rate 1.0 (exactly the town's own eating speed) net -51 wins, rate 2.0
+# net -64, rate 4.0 net -75. Monotonic in how much we meter.
+#
+# A price floor was tried first and is a different, also-wrong instrument:
+# "sell while a unit still fetches 0.85 x base" admits 32-40 units at
+# equilibrium and exactly 0 once glutted, so it empties the shed in the first
+# few days and then goes inert. It lost -26/-32/-47 wins at 0.85/0.70/0.50.
+#
+# The mechanism, measured directly on seed 901: turning the meter on RAISES
+# mean market inventory on all three products (MILK 10015.5 -> 10016.1,
+# STRAWBERRY 9978.8 -> 9980.3, WOOL 9995.2 -> 9996.9) and drops our bank from
+# 84,230 to 79,879 with the opponent's unchanged.
+#
+# That is the whole lesson, and it is general. These products' markets CLEAR by
+# the final bell -- they finish within ~40 units of equilibrium. When total
+# supply and total absorption are both fixed, selling earlier can only raise the
+# average inventory the market carries, and average inventory is what sets
+# average price. There is no timing free lunch on a product that clears; the
+# gap between 88 realised and 120 base is the intrinsic cost of selling 413
+# units into a market whose equilibrium price only holds for small quantities.
+#
+# The corollary is the useful part. Selling early IS free on a product with
+# persistent unmet demand, because its price never collapses. Those are exactly
+# the products that end the season below equilibrium -- CARROT -307, EGG -230,
+# TOMATO -225 -- and exactly the ones EAGER_SELL_ITEMS already targets for +51
+# wins and CARROT_SWAP for +12. Timing is not the lever on the clearing
+# products; production of the non-clearing ones is.
+#
+# Kept wired and disabled rather than deleted, so the negative stays measurable.
+# None disables the layer exactly and is the A/B control.
+METER_RATE_VALUE = None
+
+# How many of the four sheep the route buys on day 0 to buy as cows instead.
+#
+# The rank-1 agent (Ryo Hasegawa, 3151.8) runs 12 cows and 2 sheep; the route
+# runs 8 and 4. Played against his recording on his own seed we lose by $2,522,
+# and the ledger says we out-earn him on strawberry, melon, wheat, fertilizer
+# AND wool -- our whole deficit is MILK (-$6,750, his 269 units to our 215) plus
+# $2,380 of extra spending. PASTURE_TILT cannot reach this: it only acts from
+# day 3, and these sheep are bought blind on day 0 before a single shop opens.
+# A cow is also $100 cheaper than a sheep.
+#
+# IT DOES NOT WORK, and the reason is the same one that killed the melon patch,
+# the goose herd and the lifted route. Swapping one sheep for one cow ends the
+# season with 3 sheep, 5 cows and FIVE EMPTY PASTURES against the baseline's 4
+# and 8 with none. The recording carries exactly the PICKUP and PLACE actions
+# for exactly the animals it expects: cows bought outside that schedule sit in
+# the shed with nobody sent to fetch them, and a missing sheep makes a PLACE
+# fail and leaves the pasture bare for the rest of the game.
+#
+#     swap 0   -2,522 against rank 1
+#     swap 1  -44,993
+#     swap 2  -39,465
+#     swap 4  -82,846
+#
+# (A first version looked even worse because step 0 already carries exactly ten
+# orders and maxMarketOrdersPerTurn is ten, so the added purchase was silently
+# dropped -- worth remembering before adding any day-0 order.)
+DAY0_COW_SWAP_VALUE = 0
+
+# (route step, hand index) of every WHEAT planting the route harvests at age 3
+# rather than its usual age 4 -- the end-of-season batch, planted day 26 and
+# lifted day 29 -- and which it also waters at ages 2 and 3, which is a carrot's
+# whole yield window. Produced by analyse_plantings.py, identical on seeds 600,
+# 611 and 622, and every entry verified to be a PLANT WHEAT in the recording.
+CARROT_SWAP_VALUE = (
+    (629, 9), (633, 7), (633, 10), (633, 11), (634, 9), (635, 6), (638, 10),
+    (639, 5), (639, 9), (641, 0), (641, 6), (645, 5), (645, 10),
+)
+# Bought a day early: unit actions resolve before the market each turn, and
+# PLANT is atomic per crop -- if a turn asks to plant more of a crop than there
+# is seed for, EVERY plant of that crop that turn is dropped.
+CARROT_SEED_STEP_VALUE = 600
+
+# Wheat plantings to grow as TOMATO instead, as (route step, hand) pairs.
+#
+# Tomato is the only product in the game whose market never gluts: across 60
+# live replays its peak inventory is exactly equilibrium, and it ends an average
+# season 225 units SHORT. Nobody grows it. Every other crop we could add more of
+# clears the market, so extra volume only depresses its own price -- which is
+# the measured reason the sale meter failed and the reason more milk and wool
+# would not help either.
+#
+# IT DOES NOT WORK FROM ANY DONOR, and this is the seventh failure of the same
+# kind. Every configuration tried, over the same 360 replayed games against a
+# control of 209W-151L (58.1%):
+#
+#     10 strawberry, day 7     63W-297L   17.5%   -3,017/game   net -146
+#      8 wheat, day 8          62W-298L   17.2%   -7,389/game   net -147
+#      5 wheat, day 4          23W-337L    6.4%  -12,533/game   net -186
+#     13 wheat, days 4+8       19W-341L    5.3%  -13,896/game   net -190
+#
+# Note the ordering: the EARLIER the wheat donor, the worse it gets, because the
+# tile dies sooner and spends longer as a weed. On a town-pinned single seed the
+# strawberry variant swings the margin +2,642 (win) to -6,598 (loss).
+#
+# The mechanism is the ONGOING PRODUCTION CAP, in `_daily_refresh_plants`:
+#
+#     production_count = days_since_first // interval + 1
+#     if production_count > cd["max_yield"]: continue
+#     ...
+#     if production_count == cd["max_yield"]:
+#         tile["max_lifespan_step"] = (next_day + 1) * turns_per_day
+#
+# An `ongoing` crop yields `max_yield` units IN TOTAL and then DIES. It is not a
+# perennial. Tomato's max_yield is 4 at interval 1, so it produces on four
+# consecutive days and is gone; strawberry's is also 4 but at interval 2, so it
+# spreads the same four units over eight days.
+#
+# That makes tomato worth about half a strawberry per tile-life -- four units at
+# base 60 against four units at base 120 -- and the scarcity premium does not
+# close the gap (tomato realises ~90, strawberry ~88, so 360 against 352 per
+# tile, near parity at best). Meanwhile the tile dies early and the route's
+# later actions on it misfire, which is where the losses actually come from.
+#
+# Both donor sets died on exactly the schedule this predicts: wheat donors
+# planted day 4 died day 16, strawberry donors planted day 7 lasted 11 days.
+#
+# AN EARLIER VERSION OF THIS COMMENT BLAMED WATERING. That was wrong -- the
+# tiles were watered fine and died on their production cap. The crop table's
+# `ongoing` flag reads like "perennial" and is not; check `max_yield` against
+# `interval` before believing any ongoing crop will pay rent all season.
+#
+# () disables the swap exactly and is the A/B control.
+TOMATO_SWAP_VALUE = ()
+
+# Turn the first watering of a wheat tile into a FERTILIZE, at this crop age.
+#
+# Measured: our wheat reaches a mean peak of 3.80 against a cap of 6, and 0% of
+# it is ever fertilized -- all 72 FERTILIZE actions in a game go to strawberry.
+# Meanwhile we collect 296 fertilizer, use 72, and dump the rest into a market
+# that NOTHING consumes (no shop lists FERTILIZER and TOWN_CENTER_PRODUCTS
+# excludes it), so its price only ever falls: 100 on day 2 to 11 by day 29. The
+# last ~123 units go for 42 down to 16.
+#
+# One FERTILIZE covers `day`, `day+1` and `day+2` -- exactly wheat's watering
+# window of ages 2..4. So swapping the age-2 WATER for a FERTILIZE costs no
+# extra action and changes the tile from 1+1+1+1 = 4 units to 1+0+2+2 = 5.
+# Swapping at age 3 gains nothing (1+1+0+2 = 4), which is the control.
+#
+# This is a RUNTIME layer, not a route edit, because FERTILIZE spends from the
+# WORKER'S OWN inventory (`_inv_take(inv, "FERTILIZER", 1)`), not the shed. A
+# worker that is not carrying fertilizer would silently do nothing and lose the
+# watering too, turning a +1 into a -1. So the swap only fires when the unit
+# actually holds a unit of fertilizer, and otherwise leaves the route alone.
+#
+# IT DOES NOT WORK, AND THE ARITHMETIC ABOVE IS RIGHT BUT INCOMPLETE. On a
+# town-pinned seed 901:
+#
+#     age   wheat tiles   mean peak   fertilized   margin
+#     None          137        3.80           0%   +2,642  (win)
+#     2             136        3.54           8%   -3,335  (loss)
+#     3             137        3.78          16%      -96  (neutral)
+#
+# Two things kill it. First, YOU CANNOT REMOVE A WATERING. `_daily_refresh_plants`
+# turns a tile to WEED on `consecutive_unwatered >= 2`, and wheat's window opens
+# at age 2, so ages 0-1 are already dry -- dropping the age-2 watering makes two
+# in a row and the plant dies. That is the lost tile and the fall from 3.80 to
+# 3.54. Second, age 3 is arithmetically neutral, exactly as predicted: watering
+# lands on ages 2 and 4 for 1+1+2 = 4, the same as the unfertilized 1+1+1+1.
+#
+# It also only ever fired on 8-16% of tiles, because a worker has to be holding
+# fertilizer at that exact moment and usually is not.
+#
+# So fertilizing wheat needs an ADDED action from a worker who is idle, standing
+# on the tile, and carrying a unit -- which is route authoring, not
+# substitution, and therefore the same category that has now failed eight times.
+#
+# Kept wired and disabled so the negative stays measurable.
+# None disables the layer exactly and is the A/B control.
+FERTILIZE_WHEAT_AGE_VALUE = None
+
+# Where to buy the seed. Day 0 is deliberately avoided: the opening order is
+# already cash-clipped (5 melon seeds requested, 2 filled) and that is exactly
+# what killed the melon patch. Day 4 has the route buying wheat seed anyway, so
+# the cash is proven to be there.
+TOMATO_SEED_STEP_VALUE = None
+
+# Whether to decide CARROT-or-WHEAT for those 13 slots from the live price.
+#
+# They are planted on day 26, by which point all eight shops have opened, so the
+# town is fully known and so are the prices. And the answer is NOT always carrot:
+# sampled over 14 current-meta games, carrot beat wheat at day 26 in only 6 of
+# them. Carrot swings $37-$67 with how many PET_CAFEs and FARMERS_MARKETs the
+# town drew; wheat sits at $40-48 because everyone buys it for feed. Planting
+# carrot into a town with no carrot demand is planting the worse crop.
+#
+# None keeps the fixed carrot choice and is the A/B control. A float is the
+# ratio carrot must beat wheat by before it is worth the $20 seed over wheat's
+# $10.
+#
+# MEASURED on 226 current-meta games with the town pinned:
+#
+#     None (always carrot)  105W-121L   3 wins given back   +$482 a game
+#     1.0                   108W-118L   0 given back        +$587   net +3 wins
+#     1.2                   107W-119L   0 given back        +$547   net +2 wins
+#
+# 3 gained and 0 lost: it never plants the worse crop, which is the whole point.
+# The first town-adaptive thing on this agent that works, and it works because
+# it adapts something the recording leaves free -- the crop in a slot it was
+# going to visit anyway -- rather than something welded to it.
+CARROT_PRICE_GATE_VALUE = 1.0
+
+# Stop buying feed wheat once the shed already holds this much.
+#
+# The route buys wheat on a fixed schedule with no idea what is already in the
+# shed. Measured over 8 current-meta games: 99 purchase orders a game, median
+# shed level at the moment of purchase 16, and HALF of them issued while already
+# holding 15 or more. The herd eats about 10 a day. The shed sits on 39-57 wheat
+# through the back half of the season while we keep buying at $37 a unit --
+# $6,773 a game -- and sell our own at $35.8. A losing round trip on our own crop.
+#
+# IT IS NOT WASTE, AND THE ARITHMETIC ABOVE IS WRONG. Measured on 226 games:
+#
+#     None    108W-118L   +$587 a game
+#     30       64W-162L   -$1,424    net -44 wins
+#     20       59W-167L   -$1,887    net -49 wins
+#     12        3W-223L  -$16,783    net -105 wins
+#
+# The shed's wheat has TWO consumers, not one. The herd eats ~10 a day, but the
+# recording also SELLS wheat from that same shed on its own schedule, and those
+# sales drain the buffer far faster than feeding does. Sizing the ceiling
+# against feed alone starves the animals: at 12 the herd escapes outright.
+#
+# So the buy-at-$37/sell-at-$36 spread is not a losing round trip, it is the
+# price of a timing mismatch -- wheat is harvested and sold when it ripens and
+# eaten steadily all season -- and it is far cheaper than the alternative. This
+# file already warned that shed wheat is the herd's dinner; the warning was
+# written about selling it and applies just as well to not buying it.
+#
+# None disables it and is the A/B control.
+FEED_BUY_CEILING_VALUE = None
+
+# Tiles borrowed for an early melon patch, and when to lift it.
+#
+# The route plants 5 melons on day 0 and 14 more on days 10-11. The first batch
+# harvests on day 10 into a virgin $250 market; the second harvests on day 20
+# into a market that died on day 11 and is worth about $500 in total. Every
+# opponent that beats us plants 12 on day 0.
+#
+# There is no spare ground to copy them with. Of the NW quadrant's 25 tiles, 19
+# are planted and the remaining 6 are pastures with animals on them, so an extra
+# melon has to displace a crop. These three are the cheapest: the route first
+# plants them on day 3, with STRAWBERRY that then sits until day 19.
+#
+# () disables it exactly and is the A/B control.
+MELON_PATCH_VALUE = ()   # measured and switched OFF; see the module docstring
+MELON_PATCH_PLANT_DAY_VALUE = 1     # not day 0: PLANT is atomic per crop per turn,
+                                    # and colliding with the route's own melon
+                                    # planting would drop BOTH sets
+MELON_PATCH_HARVEST_DAY_VALUE = 11  # planted day 1, first yield day 11
+
+# Where the seed money comes from. The route looks like it has spare melon seed
+# -- it orders 8 on day 0 and plants 5 -- but it does not: the day-0 order is
+# CASH-CLIPPED. It asks for 5 melon at step 0 and only 2 clear, then 3 more at
+# step 1, and the farm is down to $4 by day 1 and never has $80 spare again
+# until day 5, by which point a melon would ripen on day 15 and miss the window
+# entirely. Requested quantities are not delivered quantities; that mistake cost
+# the first version of this layer, which planted nothing at all.
+#
+# So the seed has to be paid for on day 0, and the only slack on day 0 is the
+# herd. The route buys 1 cow and 4 sheep for $2,400; every opponent that beats
+# us buys 2 and 2 and puts the difference into melon. One sheep is $500, which
+# is six melon seeds with change.
+MELON_PATCH_SHEEP_CUT_VALUE = 1
+
+src = io.open(os.path.join(HERE, "route_agent.py"), encoding="utf-8").read()
+
+# ---------------------------------------------------------------- layer two
+OLD_LOOKAHEAD = """def _next_sale_qty(step, item):
+    future = step + 1
+    if not 0 <= future < len(_ROUTE):
+        return 0
+    return sum((max(0, int(order[2])) for order in _ROUTE[future].get('market') or [] if len(order) >= 3 and order[0] == 'SELL' and (order[1] == item)))"""
+
+NEW_LOOKAHEAD = f'''# How many steps ahead of the recorded schedule to pull a premium sale.
+# Stock V14 uses 1, so two clones preempt each other identically and tie to the
+# dollar. Measured against stock over two independent seed sets, 2 to 4 wins 31
+# of 32 games; 8 gives most of it back. See build_combined.py.
+LOOKAHEAD = {LOOKAHEAD_VALUE}
+
+
+def _next_sale_qty(step, item):
+    total = 0
+    for ahead in range(1, LOOKAHEAD + 1):
+        future = step + ahead
+        if not 0 <= future < len(_ROUTE):
+            break
+        total += sum((max(0, int(order[2])) for order in _ROUTE[future].get('market') or []
+                      if len(order) >= 3 and order[0] == 'SELL' and (order[1] == item)))
+    return total'''
+
+assert OLD_LOOKAHEAD in src, "route_agent.py does not match the expected shape"
+combined = src.replace(OLD_LOOKAHEAD, NEW_LOOKAHEAD, 1)
+
+# ---------------------------------------------------------------- layer three
+MARKET_LAYER = f'''
+
+# ----------------------------------------------------------------------------
+# Market model, transcribed from kaggle_environments/envs/kaggriculture at
+# 1.32.7. The agent is handed market.inventory and market.prices in full, so it
+# can price a sale exactly instead of guessing. Prices are recomputed per unit
+# inside the order, which is the whole reason sale sizing matters.
+# ----------------------------------------------------------------------------
+_MKT_I0 = 10000
+_MKT_PRICE_FLOOR = 1
+_MKT_HINGE_GAIN = 8.0
+
+# item: (base, T, below_func, below_target, above_func, above_target)
+_MKT_PARAMS = {{
+    'WHEAT':      (25, 400, 'sqrt', 0.80, 'log', 0.20),
+    'CARROT':     (35, 450, 'hinge', 1.00, 'sqrt', 0.70),
+    'TOMATO':     (60, 200, 'hinge', 0.40, 'sqrt', 0.60),
+    'STRAWBERRY': (120, 100, 'sqrt', 0.70, 'linear', 1.60),
+    'MELON':      (250, 300, 'log', 0.20, 'sq', 3.60),
+    'EGG':        (50, 332, 'hinge', 0.40, 'log', 0.20),
+    'MILK':       (160, 122, 'sqrt', 0.60, 'linear', 1.60),
+    'WOOL':       (200, 105, 'log', 0.20, 'sq', 3.20),
+    'FERTILIZER': (100, 200, 'linear', 0.40, 'linear', 0.40),
+}}
+
+
+def _mkt_shape(func, x, T=None):
+    x = max(0.0, x)
+    if func == 'linear':
+        return x
+    if func == 'sq':
+        return x * x
+    if func == 'sqrt':
+        return math.sqrt(x)
+    if func == 'log':
+        return math.log(1.0 + x)
+    if func == 'hinge':
+        if not T or T <= 0:
+            return x
+        u = x / T
+        return u + _MKT_HINGE_GAIN * max(0.0, u - 1.0) ** 2
+    return x
+
+
+def _mkt_price(item, inventory):
+    p = _MKT_PARAMS.get(item)
+    if p is None:
+        return _MKT_PRICE_FLOOR
+    base, T, below_f, below_t, above_f, above_t = p
+    if inventory < _MKT_I0:
+        amp = below_t * base / _mkt_shape(below_f, T, T)
+        price = base + amp * _mkt_shape(below_f, _MKT_I0 - inventory, T)
+    else:
+        amp = above_t * base / _mkt_shape(above_f, T, T)
+        price = base - amp * _mkt_shape(above_f, inventory - _MKT_I0, T)
+    return max(_MKT_PRICE_FLOOR, int(round(price)))
+
+
+# Exactly the products the recording has no SELL order for anywhere in its 720
+# steps. That restriction is the whole safety argument: this layer can only add
+# sales the schedule was never going to make, so it cannot disturb the tuned
+# timing of the ones it does make. Applying it to the route's own products
+# instead costs money monotonically -- measured against stock, floor 0.90 loses
+# $1,456 and floor 0.0 loses $3,761, with the opponent's score unmoved, so it
+# is pure self-harm. Without this layer a swapped herd's eggs would sit in the
+# shed until the buzzer and score nothing.
+# DO NOT ADD FERTILIZER OR WHEAT TO THIS TUPLE. Both were tried on 360 games
+# against a control of 209W-151L (58.1%):
+#
+#     +FERTILIZER            58W-302L   16.1%   -4,940/game   net -151 wins
+#     +FERTILIZER, +WHEAT     1W-359L    0.3%  -81,929/game   net -208 wins
+#
+# The wheat case gives back ALL 195 wins, and the mechanism is the feed chain:
+# the shed's wheat feeds the herd, so selling the "spare" starves the animals to
+# death. It is the same trap FEED_BUY_CEILING fell into from the other side.
+#
+# Fertilizer fails for the neighbouring reason. Its price only ever falls -- no
+# shop lists it and TOWN_CENTER_PRODUCTS excludes it, so nothing drains it --
+# which made "sell it sooner" look free. But FERTILIZE spends fertilizer, the
+# route fertilizes 100% of its strawberry, and a worker gets its unit by picking
+# up from the shed. Dumping the shed's stock early starves that, and fertilized
+# strawberry yields two units per production instead of one.
+#
+# The rule both cases share: an item the FARM consumes is not surplus just
+# because the market values it at 13.
+EAGER_SELL_ITEMS = ('EGG', 'CARROT', 'TOMATO')
+
+# Sell that stock while a unit still fetches this fraction of base. None
+# disables the layer exactly and is the A/B control.
+EAGER_FLOOR_FRAC = {EAGER_FLOOR_FRAC_VALUE!r}
+
+
+def _affordable_units(item, inventory, want, floor_frac):
+    """How many of `want` units still clear the floor, walking the ladder down."""
+    p = _MKT_PARAMS.get(item)
+    if p is None:
+        return want
+    floor = p[0] * floor_frac
+    sold = 0
+    inv = inventory
+    while sold < want:
+        price = _mkt_price(item, inv)
+        if price < floor:
+            break
+        sold += 1
+        # The environment only counts a sale into supply when it clears $1.
+        if price > _MKT_PRICE_FLOOR:
+            inv += 1
+    return sold
+
+
+def _eager_sell(action, obs, step):
+    """Sell pure-output stock ahead of the recorded schedule while it pays."""
+    if EAGER_FLOOR_FRAC is None:
+        return action
+
+    market_view = _value(obs, 'market', {{}}) or {{}}
+    inventory = _value(market_view, 'inventory', {{}}) or {{}}
+    private = _value(obs, 'private', {{}}) or {{}}
+    shed = _value(private, 'shed', {{}}) or {{}}
+
+    action = _copy_plan(action)
+    market = [list(order) for order in action.get('market') or []]
+
+    for item in EAGER_SELL_ITEMS:
+        already = _market_sell_qty(action, item)
+        spare = (max(0, int(_value(shed, item, 0) or 0))
+                 - _pickup_holdback(action, item) - already)
+        if spare <= 0:
+            continue
+        # Our own scheduled units go down the ladder first, so price the extra
+        # ones from where that order leaves the market.
+        inv = int(_value(inventory, item, _MKT_I0) or _MKT_I0) + already
+        extra = _affordable_units(item, inv, spare, EAGER_FLOOR_FRAC)
+        if extra <= 0:
+            continue
+        existing = next((o for o in market
+                         if len(o) >= 3 and o[0] == 'SELL' and o[1] == item), None)
+        if existing is not None:
+            existing[2] = max(0, int(existing[2])) + extra
+        elif len(market) < 10:
+            market.append(['SELL', item, extra])
+
+    action['market'] = market[:10]
+    return action
+
+
+# ----------------------------------------------------------------------------
+# Meter premium output out at a rate the town can absorb.
+#
+# The price curve falls steeply on the glut side: strawberry reaches the $1
+# floor only 63 units above equilibrium, wool 59, milk 76. So a dump of 30
+# strawberries sells its first unit near base and its last near nothing, and the
+# route does exactly that 33 times a game while leaving 687 turns unused.
+#
+# This adds a trickle from spare shed stock on the turns in between, sized off
+# the real price ladder. It never reduces a scheduled order: SELL spends from
+# the shed, so once the stock has been trickled out the scheduled dump simply
+# finds less and sells less. Total liquidation is conserved without any debt
+# bookkeeping, and the shed -- which peaks at 96 of 100 -- gets emptier, not
+# fuller.
+#
+# None disables it exactly and is the A/B control.
+# ----------------------------------------------------------------------------
+METER_ITEMS = {METER_ITEMS_VALUE!r}
+METER_RATE = {METER_RATE_VALUE!r}
+
+# Which products each town shop pulls. A shop selling exactly one product pulls
+# two of it per tick; the rest pull one of each. Shops unlock with replacement,
+# so the same shop can appear more than once and each copy consumes separately.
+_SHOP_PRODUCTS = {{
+    'BAKERY': ('EGG', 'WHEAT'),
+    'PIZZA_SHOP': ('MILK', 'TOMATO', 'WHEAT'),
+    'BRUNCH_SPOT': ('EGG', 'WHEAT', 'STRAWBERRY'),
+    'YARN_STORE': ('WOOL',),
+    'ICE_CREAM_SHOP': ('STRAWBERRY', 'MILK', 'WHEAT'),
+    'PET_CAFE': ('CARROT',),
+    'SMOOTHIE_SHOP': ('STRAWBERRY', 'MILK'),
+    'FARMERS_MARKET': ('WHEAT', 'CARROT', 'TOMATO', 'STRAWBERRY'),
+}}
+
+
+def _town_drain_per_turn(obs, item):
+    """Units of `item` the town eats per turn, from the shops it has unlocked."""
+    town = _value(obs, 'town', {{}}) or {{}}
+    shops = list(_value(town, 'unlocked_shops', []) or [])
+    drain = 0.0
+    for shop in shops:
+        products = _SHOP_PRODUCTS.get(shop, ())
+        if item in products:
+            drain += (2.0 if len(products) == 1 else 1.0) / 4.0
+    if item != 'FERTILIZER':
+        drain += 1.0 / 24.0
+    return drain
+
+
+def _meter_premium(action, obs, step):
+    """Trickle spare premium stock out at the rate the town actually eats it."""
+    if METER_RATE is None:
+        return action
+
+    market_view = _value(obs, 'market', {{}}) or {{}}
+    inventory = _value(market_view, 'inventory', {{}}) or {{}}
+    private = _value(obs, 'private', {{}}) or {{}}
+    shed = _value(private, 'shed', {{}}) or {{}}
+
+    action = _copy_plan(action)
+    market = [list(order) for order in action.get('market') or []]
+
+    for item in METER_ITEMS:
+        cap = int(round(METER_RATE * _town_drain_per_turn(obs, item)))
+        already = _market_sell_qty(action, item)
+        room = cap - already
+        if room <= 0:
+            continue
+        spare = (max(0, int(_value(shed, item, 0) or 0))
+                 - _pickup_holdback(action, item) - already)
+        extra = min(spare, room)
+        if extra <= 0:
+            continue
+        # Never hand units over at the $1 floor; that is worse than holding
+        # them for the schedule's own dump.
+        inv = int(_value(inventory, item, _MKT_I0) or _MKT_I0) + already
+        if _mkt_price(item, inv) <= _MKT_PRICE_FLOOR:
+            continue
+        existing = next((o for o in market
+                         if len(o) >= 3 and o[0] == 'SELL' and o[1] == item), None)
+        if existing is not None:
+            existing[2] = max(0, int(existing[2])) + extra
+        elif len(market) < 10:
+            market.append(['SELL', item, extra])
+
+    action['market'] = market[:10]
+    return action
+
+
+# ----------------------------------------------------------------------------
+# Fertilize wheat with the surplus nobody buys.
+#
+# See FERTILIZE_WHEAT_AGE_VALUE in kernels/build_combined.py for the full
+# reasoning. In short: wheat peaks at 3.80 of a cap of 6 and is never
+# fertilized, one FERTILIZE covers its whole 2..4 watering window, and the
+# fertilizer it spends is otherwise dumped into a market with no consumer at a
+# price that only falls.
+#
+# None disables it exactly and is the A/B control.
+# ----------------------------------------------------------------------------
+FERTILIZE_WHEAT_AGE = {FERTILIZE_WHEAT_AGE_VALUE!r}
+
+
+def _fertilize_wheat(action, obs, step):
+    """Spend carried fertilizer on a wheat tile instead of watering it once."""
+    if FERTILIZE_WHEAT_AGE is None:
+        return action
+
+    seat = _player(obs)
+    farm = _farm_view(obs, seat)
+    private = _value(obs, 'private', {{}}) or {{}}
+    inventories = list(_value(private, 'inventories', []) or [])
+    day = step // 24
+
+    action = _copy_plan(action)
+    units = [action.get('farmer') or ['PASS']] + list(action.get('hands') or [])
+    positions = [_value(farm, 'farmer')] + list(_value(farm, 'hands', []) or [])
+
+    for index, (position, unit) in enumerate(zip(positions, units)):
+        if not unit or unit[0] != 'WATER':
+            continue
+        # FERTILIZE spends from this worker's own sack. Without a unit in hand
+        # it is a no-op that also throws away the watering.
+        carried = inventories[index] if index < len(inventories) else {{}}
+        if int(_value(carried, 'FERTILIZER', 0) or 0) <= 0:
+            continue
+        tile = _tile(farm, position)
+        if not isinstance(tile, dict) or tile.get('kind') != 'PLANT':
+            continue
+        if tile.get('crop') != 'WHEAT':
+            continue
+        # Already covered: a second FERTILIZE would burn a unit for nothing.
+        if int(tile.get('fertilized_until_day', -1) or -1) >= day:
+            continue
+        if day - int(tile.get('planted_day', day) or day) != FERTILIZE_WHEAT_AGE:
+            continue
+        units[index] = ['FERTILIZE']
+
+    action['farmer'] = units[0] if units else ['PASS']
+    action['hands'] = units[1:]
+    return action
+'''
+
+HERD_LAYER = f'''
+
+# ----------------------------------------------------------------------------
+# Herd swap: rewrite the recording itself, once, at import.
+#
+# The route's animal program is 8 cows and 4 sheep, which is up to 176 milk and
+# 64 wool aimed at purses worth $6,181 and $7,928. Eggs have a log price curve
+# with a 0.20 target -- so shallow it is effectively flat -- and the town eats
+# them all season with nobody restocking. This retargets the same choreography.
+#
+# All-or-nothing by design: PLACE only succeeds when the worker is standing on
+# a structure matching the animal, so converting some pastures to coops while
+# still placing cows would silently drop those animals on the floor. The
+# rewrite therefore refuses unless every animal the route places is covered.
+#
+# {{}} disables it exactly and is the A/B control.
+# ----------------------------------------------------------------------------
+HERD_SWAP = {HERD_SWAP_VALUE!r}
+
+_ANIMAL_STRUCTURE = {{'COW': 'PASTURE', 'SHEEP': 'PASTURE', 'GOOSE': 'COOP'}}
+_BUILD_OP = {{'PASTURE': 'BUILD_PASTURE', 'COOP': 'BUILD_COOP'}}
+_ANIMAL_ORDER_OPS = ('PLACE', 'PICKUP', 'DROP')
+
+# The recording as published, kept so the swap can be re-derived rather than
+# accumulated. Rewriting _ROUTE in place would make HERD_SWAP a one-shot import
+# side effect, and a sweep that sets it between games would read the previous
+# game's herd.
+_ROUTE_STOCK = copy.deepcopy(_ROUTE)
+_EDITS_APPLIED = None
+
+
+# ----------------------------------------------------------------------------
+# Carrot swap: the one substitution the schedule can absorb.
+#
+# The route is 95% busy and acts on every unlocked tile, so there is no slack to
+# grow anything extra in. Substitution is the only lever, and it is tightly
+# constrained: WHEAT waters at ages 2-4 and its tile survives to age 5, CARROT
+# waters at ages 2-3 and its tile starts decaying at age 4. Of 141 wheat
+# plantings, 128 are lifted at age 4 -- a carrot there would already be rotting.
+# The other 13 are the end-of-season batch, planted day 26 and lifted day 29,
+# and those fit a carrot exactly.
+#
+# It is worth doing because nobody in a field of route clones grows carrots, so
+# the town eats them all season with no restocking: a route-vs-route game ends
+# with carrot 408 units short at $65 while wheat sits at $42. Selling carrot
+# instead of wheat also stops us competing with ourselves in the wheat market.
+# () disables it exactly and is the A/B control.
+# ----------------------------------------------------------------------------
+CARROT_SWAP = {CARROT_SWAP_VALUE!r}
+CARROT_SEED_STEP = {CARROT_SEED_STEP_VALUE}
+CARROT_PRICE_GATE = {CARROT_PRICE_GATE_VALUE!r}
+FEED_BUY_CEILING = {FEED_BUY_CEILING_VALUE!r}
+
+
+def _swap_carrot():
+    if not CARROT_SWAP:
+        return
+    planted = 0
+    for step, hand in CARROT_SWAP:
+        if not 0 <= step < len(_ROUTE):
+            continue
+        hands = _ROUTE[step].get('hands') or []
+        if not 0 <= hand < len(hands):
+            continue
+        unit = hands[hand]
+        if unit and len(unit) >= 2 and unit[0] == 'PLANT' and unit[1] == 'WHEAT':
+            unit[1] = 'CARROT'
+            planted += 1
+    # With the price gate on, the seed is bought at day 26 instead, only if the
+    # market says carrot is the better crop.
+    if CARROT_PRICE_GATE is not None:
+        return
+    if planted and 0 <= CARROT_SEED_STEP < len(_ROUTE):
+        market = _ROUTE[CARROT_SEED_STEP].setdefault('market', [])
+        if len(market) < 10:
+            market.append(['BUY_SEED', 'CARROT', planted])
+
+
+TOMATO_SWAP = {TOMATO_SWAP_VALUE!r}
+TOMATO_SEED_STEP = {TOMATO_SEED_STEP_VALUE!r}
+
+
+def _swap_tomato():
+    """Grow some of the route's tiles as tomato instead.
+
+    WHEAT DONORS DO NOT WORK, and the reason is mechanical. Tomato is `ongoing`,
+    so it holds the tile for the rest of the season and needs watering the whole
+    time; the route waters a wheat tile only through its four-day cycle. On
+    seed 901 all five converted wheat tiles turned to WEED on day 16 -- dead of
+    thirst, peak yield 3 of 4 -- and the dead tile then blocked the route's own
+    later wheat plantings. Bank fell 84,230 -> 67,075.
+
+    STRAWBERRY donors are the fix: strawberry is also `ongoing`, so those tiles
+    are already on a watering schedule that keeps a permanent crop alive. Tomato
+    is strictly better on every mechanical axis -- first yield day 8 vs 10,
+    interval 1 vs 2, seed 50 vs 100, same cap of 4 -- and strawberry's market
+    clears (+6 at season end) while tomato's ends 225 short.
+    """
+    if not TOMATO_SWAP:
+        return
+    planted = 0
+    first = len(_ROUTE)
+    for step, hand in TOMATO_SWAP:
+        if not 0 <= step < len(_ROUTE):
+            continue
+        hands = _ROUTE[step].get('hands') or []
+        if not 0 <= hand < len(hands):
+            continue
+        unit = hands[hand]
+        if (unit and len(unit) >= 2 and unit[0] == 'PLANT'
+                and unit[1] in ('WHEAT', 'STRAWBERRY')):
+            unit[1] = 'TOMATO'
+            planted += 1
+            first = min(first, step)
+    if not planted:
+        return
+    # Buy the seed a day ahead of the first planting, in the first step with
+    # room under the ten-order cap. Never on day 0: that order is already
+    # cash-clipped, which is what killed the melon patch.
+    start = TOMATO_SEED_STEP if TOMATO_SEED_STEP is not None else max(24, first - 24)
+    for step in range(start, min(first + 1, len(_ROUTE))):
+        market = _ROUTE[step].setdefault('market', [])
+        if len(market) < 10:
+            market.append(['BUY_SEED', 'TOMATO', planted])
+            return
+
+
+def _add_day0_order(order):
+    """Put an order in the first day-0 step with room under the ten-order cap."""
+    for step in range(1, 24):
+        market = _ROUTE[step].setdefault('market', [])
+        if len(market) < 10:
+            market.append(list(order))
+            return True
+    return False
+
+
+def _swap_day0_herd():
+    """Buy some of the day-0 sheep as cows instead, in the recording itself."""
+    if not DAY0_COW_SWAP:
+        return
+    left = DAY0_COW_SWAP
+    for trace in _ROUTE[:24]:
+        for order in trace.get('market') or []:
+            if (len(order) >= 3 and order[0] == 'BUY_ANIMAL'
+                    and order[1] == 'SHEEP' and left > 0):
+                take = min(left, int(order[2]))
+                order[2] = int(order[2]) - take
+                left -= take
+                if order[2] <= 0:
+                    order[1] = 'COW'
+                    order[2] = take
+                else:
+                    # Not trace['market'].append: step 0 already carries exactly
+                    # ten orders and maxMarketOrdersPerTurn is ten, so an
+                    # eleventh is SILENTLY DROPPED. That turned a 2-for-2 swap
+                    # into "buy two fewer sheep and nothing else" -- a smaller
+                    # herd, and a $17k loss a game that looked economic.
+                    _add_day0_order(['BUY_ANIMAL', 'COW', take])
+                break
+    # PICKUP and PLACE are corrected to whatever we actually hold at runtime, so
+    # the animals still reach their pastures. Both live on a PASTURE, so nothing
+    # can be stranded on the wrong building.
+
+
+def _swap_melon_seed():
+    """Pay for the patch out of the day-0 herd, in the recording itself."""
+    if not MELON_PATCH or not MELON_PATCH_SHEEP_CUT:
+        return
+    cut = MELON_PATCH_SHEEP_CUT
+    for trace in _ROUTE[:24]:
+        for order in trace.get('market') or []:
+            if (len(order) >= 3 and order[0] == 'BUY_ANIMAL'
+                    and order[1] == 'SHEEP' and cut > 0):
+                take = min(cut, max(0, int(order[2]) - 1))
+                order[2] = int(order[2]) - take
+                cut -= take
+    # Melon seed is $80; a sheep is $500. Buy the patch and leave the change,
+    # because day 0 is already spending to the last dollar.
+    for trace in _ROUTE[:24]:
+        for order in trace.get('market') or []:
+            if len(order) >= 3 and order[0] == 'BUY_SEED' and order[1] == 'MELON':
+                order[2] = int(order[2]) + len(MELON_PATCH)
+                return
+
+
+def _apply_route_edits():
+    """Rebuild _ROUTE from the published recording under the current edits."""
+    global _ROUTE, _EDITS_APPLIED
+    key = (tuple(sorted(HERD_SWAP.items())), tuple(CARROT_SWAP), CARROT_SEED_STEP,
+           tuple(MELON_PATCH), MELON_PATCH_SHEEP_CUT, DAY0_COW_SWAP,
+           CARROT_PRICE_GATE, tuple(TOMATO_SWAP), TOMATO_SEED_STEP)
+    if _EDITS_APPLIED == key:
+        return
+    _EDITS_APPLIED = key
+    _ROUTE = copy.deepcopy(_ROUTE_STOCK)
+    _swap_carrot()
+    _swap_tomato()
+    _swap_day0_herd()
+    _swap_melon_seed()
+    _swap_herd()
+
+
+def _swap_herd():
+    if not HERD_SWAP:
+        return
+
+    placed = set()
+    for trace in _ROUTE:
+        for unit in [trace.get('farmer')] + list(trace.get('hands') or []):
+            if unit and len(unit) >= 2 and unit[0] == 'PLACE' and unit[1] in _ANIMAL_STRUCTURE:
+                placed.add(unit[1])
+        for order in trace.get('market') or []:
+            if order and order[0] == 'BUY_ANIMAL' and len(order) >= 2:
+                placed.add(order[1])
+    # A partial swap would strand animals: PLACE only succeeds on a structure
+    # matching the animal, so a cow placed on a converted coop is money burnt.
+    if not placed or not placed.issubset(HERD_SWAP):
+        return
+    targets = {{_ANIMAL_STRUCTURE[HERD_SWAP[a]] for a in placed}}
+    if len(targets) != 1:
+        return
+    build_op = _BUILD_OP[next(iter(targets))]
+    old_builds = {{op for op in _BUILD_OP.values() if op != build_op}}
+
+    for trace in _ROUTE:
+        for unit in [trace.get('farmer')] + list(trace.get('hands') or []):
+            if not unit:
+                continue
+            if unit[0] in old_builds:
+                unit[0] = build_op
+            elif (unit[0] in _ANIMAL_ORDER_OPS and len(unit) >= 2
+                  and unit[1] in HERD_SWAP):
+                unit[1] = HERD_SWAP[unit[1]]
+        for order in trace.get('market') or []:
+            if order and order[0] == 'BUY_ANIMAL' and len(order) >= 2 and order[1] in HERD_SWAP:
+                order[1] = HERD_SWAP[order[1]]
+
+
+# ----------------------------------------------------------------------------
+# Early melon patch, worked by a hand the route does not know exists.
+#
+# Melon is the steepest curve on the board (sq, target 3.60: $250 at the top,
+# dead at 158 units), so the day-10 harvest is the single richest moment in the
+# game and it goes to whoever brings the most fruit. Across 15 losses to 15
+# different opponents the melon gap is +13,584 -- the same number every time,
+# because they plant 12 on day 0 and we plant 5.
+#
+# The insertion point is hiring. Hands are cleared and re-hired nightly at
+# fib(hires_today), so one MORE hand than the recording expects costs $8 on day
+# 0 and $1-$21 a day through day 9. The route addresses its hands by index and
+# _match_hands pads the rest with PASS, so that extra slot is ours outright --
+# no desynchronisation risk, unlike stealing an idle turn from a hand the route
+# is going to move next turn.
+#
+# What it cannot do is conjure ground. NW is full, so the patch displaces three
+# strawberries, and strawberry is our best market at roughly $244 a unit. That
+# makes this a genuine trade rather than free money, which is why it is a
+# measured switch and not a rewrite.
+# ----------------------------------------------------------------------------
+MELON_PATCH = {MELON_PATCH_VALUE!r}
+MELON_PATCH_PLANT_DAY = {MELON_PATCH_PLANT_DAY_VALUE}
+MELON_PATCH_HARVEST_DAY = {MELON_PATCH_HARVEST_DAY_VALUE}
+MELON_PATCH_SHEEP_CUT = {MELON_PATCH_SHEEP_CUT_VALUE}
+
+
+def _shed_tiles(farm):
+    size = len(_value(farm, 'tiles', []) or []) or 10
+    half = size // 2
+    return ((half - 1, half - 1), (half, half - 1), (half - 1, half), (half, half))
+
+
+def _step_toward(pos, target):
+    x, y = int(pos[0]), int(pos[1])
+    tx, ty = int(target[0]), int(target[1])
+    if x < tx:
+        return ['EAST']
+    if x > tx:
+        return ['WEST']
+    if y < ty:
+        return ['SOUTH']
+    if y > ty:
+        return ['NORTH']
+    return None
+
+
+def _patch_job(farm, private, idx, pos, day):
+    """One order for a spare hand: plant, water, harvest, or carry to the shed."""
+    inventories = list(_value(private, 'inventories', []) or [])
+    inv = inventories[idx] if idx < len(inventories) else {{}}
+    carrying = int(_value(inv, 'MELON', 0) or 0)
+    if carrying > 0:
+        sheds = _shed_tiles(farm)
+        if tuple(pos) in sheds:
+            return ['DROP']
+        return _step_toward(pos, sheds[0])
+
+    seeds = _value(private, 'seeds', {{}}) or {{}}
+    have_seed = int(_value(seeds, 'MELON', 0) or 0)
+
+    for tile_xy in MELON_PATCH:
+        tile = _tile(farm, tile_xy)
+        ripe = (isinstance(tile, dict) and tile.get('kind') == 'PLANT'
+                and tile.get('crop') == 'MELON')
+        if day >= MELON_PATCH_HARVEST_DAY and ripe:
+            if int(tile.get('yield_units', 0) or 0) <= 0:
+                continue
+            return ['HARVEST'] if tuple(pos) == tile_xy else _step_toward(pos, tile_xy)
+        if day >= MELON_PATCH_HARVEST_DAY:
+            continue
+        if tile is None and have_seed > 0 and day >= MELON_PATCH_PLANT_DAY:
+            return ['PLANT', 'MELON'] if tuple(pos) == tile_xy else _step_toward(pos, tile_xy)
+        # Two consecutive dry days turns the tile to weed, and every watered day
+        # from age 6 on is another unit of fruit, so water whatever is dry.
+        if ripe and not tile.get('watered_today'):
+            return ['WATER'] if tuple(pos) == tile_xy else _step_toward(pos, tile_xy)
+    return None
+
+
+_ROUTE_HANDS_PER_DAY = {{}}
+
+
+def _routed_hands(step):
+    """How many hands the recording addresses on this step's DAY.
+
+    Not len(_ROUTE[step]['hands']): that list is 0 long at hour 0 and only 7
+    long at hour 1 of day 10, when the roster is 14. Reading it per step made
+    this layer hand melon jobs to seven hands the route was relying on, at the
+    single busiest moment of the game.
+    """
+    day = step // 24
+    if day not in _ROUTE_HANDS_PER_DAY:
+        lo, hi = day * 24, min((day + 1) * 24, len(_ROUTE))
+        _ROUTE_HANDS_PER_DAY[day] = max(
+            (len(_ROUTE[s].get('hands') or []) for s in range(lo, hi)), default=0)
+    return _ROUTE_HANDS_PER_DAY[day]
+
+
+_CARROT_CHOICE = {{0: None, 1: None}}
+# Day 26 hour 0. Unit actions resolve before the market each turn, so seed bought
+# here is in hand from the next step, and the first swapped planting is at 629.
+CARROT_DECIDE_STEP = 624
+
+
+def _cap_feed_buying(action, obs, step):
+    """Trim scheduled wheat purchases to what the shed actually still needs.
+
+    Only ever reduces a BUY, never a FEED, so the herd cannot be starved by
+    this: it stops at the ceiling, and the ceiling is several days of eating.
+    """
+    if FEED_BUY_CEILING is None:
+        return action
+    private = _value(obs, 'private', {{}}) or {{}}
+    shed = _value(private, 'shed', {{}}) or {{}}
+    held = max(0, int(_value(shed, 'WHEAT', 0) or 0))
+    room = FEED_BUY_CEILING - held
+    if room >= 10 ** 6:
+        return action
+
+    action = _copy_plan(action)
+    market = []
+    for raw in action.get('market') or []:
+        order = list(raw)
+        if len(order) >= 3 and order[0] == 'BUY_PRODUCT' and order[1] == 'WHEAT':
+            want = max(0, int(order[2]))
+            take = max(0, min(want, room))
+            room -= take
+            if take <= 0:
+                continue
+            order[2] = take
+        market.append(order)
+    action['market'] = market[:10]
+    return action
+
+
+def _carrot_or_wheat(action, obs, step):
+    """Pick the crop for the 13 dead slots from the day-26 market."""
+    if CARROT_PRICE_GATE is None or not CARROT_SWAP:
+        return action
+    seat = _player(obs)
+    if step == 0:
+        _CARROT_CHOICE[seat] = None
+
+    action = _copy_plan(action)
+    prices = _value(_value(obs, 'market', {{}}) or {{}}, 'prices', {{}}) or {{}}
+
+    if step == CARROT_DECIDE_STEP:
+        carrot = float(_value(prices, 'CARROT', 0) or 0)
+        wheat = float(_value(prices, 'WHEAT', 1) or 1)
+        _CARROT_CHOICE[seat] = carrot > wheat * CARROT_PRICE_GATE
+        if _CARROT_CHOICE[seat]:
+            market = [list(o) for o in action.get('market') or []]
+            if len(market) < 10:
+                market.append(['BUY_SEED', 'CARROT', len(CARROT_SWAP)])
+                action['market'] = market[:10]
+
+    if _CARROT_CHOICE[seat] is False:
+        # Put the route's own wheat back. Its wheat seed budget already covered
+        # these tiles, so nothing else is starved by the swap.
+        hands = action.get('hands') or []
+        for swap_step, hand in CARROT_SWAP:
+            if swap_step == step and 0 <= hand < len(hands):
+                unit = hands[hand]
+                if unit and len(unit) >= 2 and unit[0] == 'PLANT' and unit[1] == 'CARROT':
+                    unit[1] = 'WHEAT'
+    return action
+
+
+def _melon_patch(action, obs, step):
+    if not MELON_PATCH:
+        return action
+    day = step // 24
+    if day > MELON_PATCH_HARVEST_DAY + 2:
+        return action
+
+    seat = _player(obs)
+    farm = _farm_view(obs, seat)
+    hands = list(_value(farm, 'hands', []) or [])
+    routed = _routed_hands(step)
+    private = _value(obs, 'private', {{}}) or {{}}
+    action = _copy_plan(action)
+    market = [list(o) for o in action.get('market') or []]
+
+    # Keep exactly one hand more than the recording addresses.
+    if len(hands) <= routed and len(market) < 10:
+        market.append(['HIRE'])
+
+    # The recording sells melon on day 10 and then not again until day 20, by
+    # which point the market is dead. The patch ripens on day 11, so without
+    # this its fruit would sit in the shed for nine days and fetch $1.
+    if day >= MELON_PATCH_HARVEST_DAY:
+        private_shed = _value(private, 'shed', {{}}) or {{}}
+        held = max(0, int(_value(private_shed, 'MELON', 0) or 0))
+        if held > 0 and not any(
+                len(o) >= 3 and o[0] == 'SELL' and o[1] == 'MELON' for o in market):
+            if len(market) < 10:
+                market.append(['SELL', 'MELON', held])
+    action['market'] = market[:10]
+
+    plan = [list(h or ['PASS']) for h in (action.get('hands') or [])]
+    while len(plan) < len(hands):
+        plan.append(['PASS'])
+    for idx in range(routed, len(hands)):
+        # private.inventories is [farmer, *hands], so hand i is at i + 1.
+        order = _patch_job(farm, private, idx + 1, hands[idx], day)
+        if order:
+            plan[idx] = order
+    action['hands'] = plan
+    return action
+
+#
+# The town's eight shops are drawn per episode WITH REPLACEMENT, so how much
+# wool and milk the town eats is a per-game fact -- and it is handed to the
+# agent in obs.town.unlocked_shops. The recording ignores it and buys the same
+# 8 cows and 4 sheep every single game. Over 20 route-vs-route games, WOOL ends
+# more than 50 units SHORT at around $240 in 9 of them, while MILK ends 74 units
+# LONG at $5 in most. The herd is wrong in both directions at once.
+#
+# Episode 93781740 is what that costs. The town drew two YARN_STOREs -- single
+# product, so two units a tick each -- and wool never fell below $246 all game.
+# The opponent ran 8 sheep to our 4 and took $66,063 of wool to our $31,383.
+# That one product is a bigger gap than the entire $34,001 match margin.
+#
+# COW and SHEEP both live on a PASTURE, so this is a rename and nothing more --
+# no structure changes, no choreography changes, and PLACE cannot strand an
+# animal on the wrong building the way the goose experiment could. Only the
+# BUY is a decision; PICKUP and PLACE are corrected to whatever we actually
+# hold, so the three can never disagree.
+#
+# It works, and it is switched OFF, because it wins money and loses games.
+# Measured against the stock route over 32 seeds, 128 games:
+#
+#     PASTURE_TILT None   64/64 wins   our 93,628   theirs 91,222
+#     PASTURE_TILT 1.0    54/64 wins   our 94,844   theirs 93,780
+#
+# In the games where it fires it is worth +$8,500 to +$9,000 and never once
+# hurts our own score. It still costs ten wins, because vacating milk hands a
+# cow-heavy opponent an uncontested run at it: our score goes up $1,216 and
+# theirs goes up $2,558. The reward here is the bank balance but the RANKING is
+# win-based, so a change that enriches both sides and the opponent more is a
+# losing trade. 0.6, 1.0 and 1.6 all decide identically -- the wool/milk call is
+# never close -- so this is the change itself failing, not the threshold.
+#
+# The "it is right against a sheep-heavy FIELD" defence is now falsified too.
+# Replayed against all 138 live episodes with the real opponents' recorded
+# actions (bench_losses.py --all):
+#
+#     PASTURE_TILT None   103W-35L   +$1,074 a game
+#     PASTURE_TILT 1.0     96W-42L   +$2,945 a game
+#     versus control: 0 gained, 7 lost, net -7 wins
+#
+# It gains nothing anywhere -- not even in the wool-heavy games it was built
+# for, where it makes money without turning it into wins -- and gives back seven.
+# So gating it on the opponent's fork cannot save it: there is nothing to gate
+# ON. Almost three times the money and seven fewer wins is the exact trade a
+# win-rate ladder punishes. Kept only as a worked example of that trap.
+# ----------------------------------------------------------------------------
+PASTURE_TILT = {PASTURE_TILT_VALUE!r}
+DAY0_COW_SWAP = {DAY0_COW_SWAP_VALUE}
+
+# Day 0 buys 4 sheep and a cow before a single shop has opened, so there is
+# nothing to react to; the first shop unlocks on day 3. Everything the route
+# buys from here on is a live decision.
+PASTURE_DECIDE_STEP = 72
+
+_PASTURE_ANIMALS = ('COW', 'SHEEP')
+_PASTURE_PRODUCT = {{'COW': 'MILK', 'SHEEP': 'WOOL'}}
+_PASTURE_COST = {{'COW': 400, 'SHEEP': 500}}
+
+
+def _town_rate(obs, item):
+    """Units of `item` the town eats per shop tick, from the shops it has opened."""
+    town = _value(obs, 'town', {{}}) or {{}}
+    rate = 0
+    for shop in list(_value(town, 'unlocked_shops', []) or []):
+        products = _SHOP_DEMAND.get(shop, ())
+        if item in products:
+            rate += 2 if len(products) == 1 else 1
+    return rate
+
+
+def _preferred_pasture(obs):
+    wool = _town_rate(obs, 'WOOL') * _MKT_PARAMS['WOOL'][0]
+    milk = _town_rate(obs, 'MILK') * _MKT_PARAMS['MILK'][0]
+    return 'SHEEP' if wool > milk * PASTURE_TILT else 'COW'
+
+
+def _retarget_pasture(action, obs, step):
+    # NOTE: the PICKUP/PLACE correction below runs even when PASTURE_TILT is off,
+    # because DAY0_COW_SWAP also changes what we hold and the recording still
+    # says PICKUP SHEEP. Only the BUY decision is gated on the tilt.
+    if PASTURE_TILT is None and not DAY0_COW_SWAP:
+        return action
+
+    seat = _player(obs)
+    farm = _farm_view(obs, seat)
+    private = _value(obs, 'private', {{}}) or {{}}
+    shed = _value(private, 'shed', {{}}) or {{}}
+    inventories = list(_value(private, 'inventories', []) or [])
+    action = _copy_plan(action)
+
+    if PASTURE_TILT is not None and step >= PASTURE_DECIDE_STEP:
+        want = _preferred_pasture(obs)
+        money = float(_value(farm, 'money', 0) or 0)
+        for order in action.get('market') or []:
+            if (len(order) >= 2 and order[0] == 'BUY_ANIMAL'
+                    and order[1] in _PASTURE_ANIMALS and order[1] != want):
+                # A sheep costs $100 more than a cow and the route runs its
+                # balance down to double digits in the first week. A buy that
+                # cannot be afforded is not a worse animal, it is no animal, so
+                # only upgrade when the money is already in hand.
+                if money >= _PASTURE_COST[want] * (int(order[2]) if len(order) > 2 else 1):
+                    order[1] = want
+
+    # PICKUP and PLACE are corrected to what we are actually holding rather than
+    # decided again, so a purchase that was retargeted (or refused) still lines
+    # up with the animal that reaches the pasture.
+    units = [('farmer', action.get('farmer'))]
+    units += [(i, h) for i, h in enumerate(action.get('hands') or [])]
+    for idx, (_slot, unit) in enumerate(units):
+        if not unit or len(unit) < 2 or unit[1] not in _PASTURE_ANIMALS:
+            continue
+        if unit[0] == 'PICKUP':
+            if int(_value(shed, unit[1], 0) or 0) <= 0:
+                other = next((a for a in _PASTURE_ANIMALS
+                              if int(_value(shed, a, 0) or 0) > 0), None)
+                if other:
+                    unit[1] = other
+        elif unit[0] == 'PLACE':
+            inv = inventories[idx] if idx < len(inventories) else {{}}
+            if int(_value(inv, unit[1], 0) or 0) <= 0:
+                other = next((a for a in _PASTURE_ANIMALS
+                              if int(_value(inv, a, 0) or 0) > 0), None)
+                if other:
+                    unit[1] = other
+    return action
+
+
+# Applied here, not next to its definition: the edits read MELON_PATCH and
+# CARROT_SWAP, which are declared by layers further down the file.
+_apply_route_edits()
+'''
+
+anchor = "\n\ndef agent(obs):"
+assert anchor in combined, "route_agent.py has no agent() to anchor against"
+combined = combined.replace(anchor, MARKET_LAYER + HERD_LAYER + anchor, 1)
+
+OLD_CALL = "        action = _final_drop_cash(obs, action, step)"
+NEW_CALL = ("        action = _final_drop_cash(obs, action, step)\n"
+            "        action = _retarget_pasture(action, obs, step)\n"
+            "        action = _cap_feed_buying(action, obs, step)\n"
+            "        action = _carrot_or_wheat(action, obs, step)\n"
+            "        action = _melon_patch(action, obs, step)\n"
+            "        action = _eager_sell(action, obs, step)\n"
+            "        action = _meter_premium(action, obs, step)\n"
+            "        action = _fertilize_wheat(action, obs, step)")
+assert OLD_CALL in combined, "agent() body does not match the expected shape"
+combined = combined.replace(OLD_CALL, NEW_CALL, 1)
+
+# The edits have to be re-read per game, not per import, or a sweep that sets
+# one between games would play the previous game's recording.
+OLD_HEAD = "    try:\n        step = min(max(0, int("
+NEW_HEAD = "    try:\n        _apply_route_edits()\n        step = min(max(0, int("
+assert OLD_HEAD in combined, "agent() prologue does not match the expected shape"
+combined = combined.replace(OLD_HEAD, NEW_HEAD, 1)
+
+# _mkt_shape needs math; the route imports base64/copy/json/zlib only.
+assert combined.startswith('"""') or "import base64" in combined
+combined = combined.replace("import base64", "import base64\nimport math", 1)
+
+header = (
+    '"""V14 route, adapted to the 1.32.7 market.\n\n'
+    f'  * premium-sale preemption widened from 1 step to {LOOKAHEAD_VALUE}\n'
+    f'  * the {len(CARROT_SWAP_VALUE)} end-of-season wheat plantings the schedule lifts at age 3\n'
+    f'    grown as CARROT instead -- nobody in a field of route clones grows\n'
+    f'    carrots, so the town ends 400 units short of them\n'
+    f'  * CARROT/TOMATO/EGG sold off the real price ladder while a unit still\n'
+    f'    fetches {EAGER_FLOOR_FRAC_VALUE!r} x base; the recording has no SELL order for any of\n'
+    f'    the three, so this can only add sales, never retime the tuned ones\n\n'
+    'See kernels/build_combined.py for what was and was not combined, and why."""\n'
+)
+combined = header + combined.split('"""', 2)[2].lstrip("\n")
+
+# A layer that is defined but never called is invisible: it builds, imports,
+# passes a smoke test, and measures as "no effect". That has happened twice --
+# once for the carrot price gate and once for the feed ceiling, each time
+# because a call-site string patch stopped matching. Check it instead of
+# trusting it.
+_body = combined.split("def agent(obs):", 1)[-1]
+_missing = [name for name in re.findall(r"^def (_[a-z_]+)\(action, obs, step\)",
+                                        combined, re.M)
+            if f"{name}(action, obs, step)" not in _body]
+if _missing:
+    raise SystemExit("these layers are defined but never called from agent(): "
+                     + ", ".join(_missing))
+
+out = os.path.join(os.path.dirname(HERE), "agent_combined.py")
+io.open(out, "w", encoding="utf-8", newline="").write(combined)
+print(f"wrote {out}  LOOKAHEAD={LOOKAHEAD_VALUE}  "
+      f"EAGER_FLOOR_FRAC={EAGER_FLOOR_FRAC_VALUE!r}  HERD_SWAP={HERD_SWAP_VALUE}  "
+      f"CARROT_SWAP={len(CARROT_SWAP_VALUE)} plantings  PASTURE_TILT={PASTURE_TILT_VALUE!r}  "
+      f"MELON_PATCH={len(MELON_PATCH_VALUE)} tiles")

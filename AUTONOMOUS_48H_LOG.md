@@ -1,0 +1,357 @@
+# Autonomous 48-hour optimisation log
+
+> **Where this runs.** From 2026-08-14 the 4-hourly checkpoints execute in an
+> isolated git worktree at `C:\Users\viloh\kaggriculture-auto` on branch
+> `auto/48h-optimisation`, **not** in the interactive tree. The two shared one
+> working directory for the first few checkpoints and collided: a checkpoint
+> fired mid-session, found uncommitted work in the shared tree and committed it
+> under its own message (`4b89857`). Benign that time — its analysis was correct
+> and independently matched — but the same race could have committed half-edited
+> code or clobbered `patterns.csv`.
+>
+> `.venv` and `kaggle_episode_data/replays` are directory junctions to the
+> shared copies, so the interpreter and the multi-GB replay cache are not
+> duplicated. Each checkpoint starts with `git merge --ff-only
+> codex/rank-1-strategy` to pick up interactive work, and never force-merges.
+>
+> **Commits made by the schedule land on `auto/48h-optimisation` and are not on
+> your branch until you merge them deliberately.** To inspect:
+> `git log codex/rank-1-strategy..auto/48h-optimisation`. To remove the worktree
+> when the run ends: `git worktree remove C:/Users/viloh/kaggriculture-auto`.
+
+Started **2026-08-14**, ends **2026-08-16**. Checkpoints every 4 hours; the
+schedule cancels itself at the end.
+
+Rules this log holds itself to, carried over from `BRANCH_FILE_GUIDE.md`:
+
+- One strategic change per checkpoint, or none. "No change justified" is a
+  valid, expected result.
+- Two independent seed sets, 20+ games, both seats, before believing anything
+  under ~+10,000. Magnitudes must agree, not just signs.
+- A real optimum has slopes. An isolated spike with losing neighbours is a seed
+  set, not a finding.
+- Final money and paired wins decide. An intermediate metric improving is not
+  evidence — crew-sizing improved every intermediate metric and lost 24 straight.
+- Never re-run a falsified idea without a genuinely new mechanism.
+
+---
+
+## Baseline at start
+
+| | |
+|---|---|
+| Best commit | `cc1f527` |
+| Live submission | 55414416 (873.4) |
+| Previous submission | 55397388 (**892.0** — currently scoring higher) |
+| Live record | 115/230 = **50.0%** |
+| Live mean score | 76,702 vs opponents' 74,697 (margin **+2,005**) |
+| Local validation | HEAD 13/20 (65%), +2,253/game vs pre-rework `a49c8d3` |
+
+### Why the live win rate is 50%
+
+Not a defect. ELO matchmaking pairs us against opponents of our own rating, so
+50% *is* the equilibrium of a stable rating. The rating, not the win rate, is
+the thing to move. Margin distribution over 230 live seats:
+
+```
+quartiles   -11,392        +30    +14,854
+37% of games decided by under 10,000
+
+  +2,000/game would flip  9 of 115 losses -> 53.9%
+  +5,000/game            31              -> 63.5%
+ +10,000/game            50              -> 71.7%
+ +20,000/game            86              -> 87.4%
+```
+
+So the 80–90% target needs roughly **+20,000/game** against the present pool,
+and the pool strengthens as we climb.
+
+---
+
+## Open methodological question (checkpoint 0)
+
+Every A/B in this project has been **self-play**: our agent against our own
+earlier commit. Both sides then hit the market with identical timing — both
+dump melon the same day, both flood fertilizer, both leave wheat demand unmet.
+Any change touching market volume or timing is judged in a world where the
+opponent's supply is perfectly correlated with ours.
+
+Several of the 13 falsified hypotheses were market-facing (melon glut,
+fertilizing wheat, backfill crop, sell volume). If self-play distorts them, some
+deserve re-testing. Running `BACKFILL_CROP` against structurally different
+opponent `c34629c` (travel divisor 0.85, herd cap 17 — genuinely different
+behaviour, comparable live strength at 822.9) on the same seeds 240–251 that
+produced 11/24 and −1,424 under self-play.
+
+---
+
+## Submission decision, 2026-08-15 — matched-episode comparison
+
+Waiting for 55514059 to reach 120 episodes would have taken ~39 hours: the rate
+collapsed from one episode every 4 minutes at launch to one every ~35 minutes.
+Matching on episode count answers the same question immediately.
+
+| | first 53 episodes | win rate | our score | margin |
+|---|---|---|---|---|
+| 55414416 | 53 | 52.8% | 85,768 | +4,466 |
+| 55514059 | 53 | 50.9% | 85,069 | +3,234 |
+
+**A one-game difference.** The two agents are indistinguishable live, so the
+856.0 against 817.3 gap is episode count and opponent draw rather than agent
+quality. The previous locally-validated change (14/20, +4,405 local) produced
+no measurable live effect in either direction — which is the second time local
+validation has failed to predict a live movement, and worth remembering before
+reading anything into the next score.
+
+Submitted the CMA-ES triple anyway, as **55536047**, because: the evidence
+behind it is the strongest in the project (p=0.013 across two untouched holdout
+sets, positive against all four pool opponents); the downside I was protecting
+against turns out not to exist; six weeks remain, so retiring an older
+submission is cheap now and expensive later; and waiting 39 hours would buy an
+answer the matched comparison has already given.
+
+Note for later: Kaggle keeps only **two** submissions active, so each submit
+retires one. 55397388 (892.0) was retired by 55514059 and stopped playing on
+2026-08-14.
+
+---
+
+## Checkpoint 0 — 2026-08-14, session start
+
+**Current best**
+- Commit: `cc1f527`
+- Submission ID: 55414416
+- Live episodes: 230 seats / 115 games
+- Live win rate: 50.0%
+- Validated local: 13/20 (65%), +2,253 vs `a49c8d3`
+
+**Biggest remaining gap** — absolute score. We average 76,702; the strongest 101
+seats of 508 mined episodes average 133,066. That is a **56,000/game** gap, and
++20,000 of it would be worth an 87% win rate against the current pool.
+
+**Root-cause hypothesis** — no independent measure of strength. `benchmark_ab`
+compares us to our own past self and `opponent_strong.py` imports `main`, so
+every result to date measures *change*, not *level*. Thirteen consecutive
+falsifications are consistent with a well-converged local optimum that we have
+no instrument to see beyond.
+
+**Evidence** — 13 sweeps, losses in both directions from current values; live
+margin +2,005 against same-rated opponents; the one surviving change
+(`ANIMAL_TOTAL_CAP` flat 14) came from a field-wide gradient across 310 seats
+rather than from self-play intuition.
+
+**Experiment performed** — two.
+
+*1. Validation of HEAD against the actually-live agent* `f454950`, seeds 300–309:
+
+```
+14/20 (70%)   avg current 81,093   avg baseline 76,688   margin +4,405
+```
+
+Together with 13/20 and +2,253 against `a49c8d3` on seeds 260–269, that is two
+independent seed sets with agreeing magnitudes. **Submitted as 55514059.**
+
+*2. Self-play bias test.* `BACKFILL_CROP` on the same seeds 240–251, once against
+HEAD and once against structurally different `c34629c`:
+
+| backfill | vs HEAD | vs `c34629c` |
+|---|---|---|
+| CARROT | 10/24, +0 | 23/24, **+17,215** |
+| WHEAT | 11/24, **−1,424** | 24/24, **+23,068** |
+
+**Result: KEEP the submission; NO code change. Self-play bias is confirmed real.**
+The same change is worth −1,424 against ourselves and +5,853 against a different
+opponent — a sign flip, not a magnitude wobble.
+
+The absolute scores stop this being a straight win, though. Under WHEAT *our own*
+score falls, 77,226 → 71,618; the opponent's falls further, 60,011 → 48,550. So
+wheat backfill does not make us stronger, it makes an opponent that depends on
+the wheat market weaker. Against ELO and Bradley-Terry, which score wins rather
+than money, denial still counts — but this is one opponent, and testing against
+a single different agent is merely a different bias.
+
+**Next highest-value investigation** — build a multi-opponent benchmark
+(pool: HEAD, `a49c8d3`, `f454950`, `c34629c`) and average across it. Until that
+exists, no market-facing result in this project is trustworthy in either
+direction. Then re-test the market-facing falsifications under it: melon glut
+allowance, fertilizing wheat, backfill crop, sell-volume caps.
+
+Second priority, unaffected by the bias: `absorbable_units` projects the whole
+season's town demand from today's shop count, and a flat multiplier could not
+fix it (2.0 gave 13/16 then 10/20 with both neighbours losing). It needs the
+`townShopUnlockInterval = 3` schedule modelled, which is work rather than a sweep.
+
+---
+
+## Checkpoint 0b — multi-opponent benchmark built and first re-test
+
+`benchmark_pool.py` (`c78c4b5`) plays a candidate against four structurally
+different builds, in parallel across processes, and reports win rate **and** our
+own absolute score per opponent, flagging when the two disagree.
+
+**First absolute strength reading this project has had.** Current agent vs pool,
+seeds 240–247:
+
+| opponent | wins | our score | their score | margin |
+|---|---|---|---|---|
+| HEAD (self-play) | 8/16 | 73,785 | 73,785 | +0 |
+| `a49c8d3` | 9/16 | 73,418 | 73,129 | +289 |
+| `f454950` | 11/16 | 73,484 | 71,356 | +2,128 |
+| `c34629c` | 15/16 | 74,999 | 58,874 | +16,124 |
+| **POOLED** | **43/64 (67.2%)** | **73,921** | 69,286 | **+4,635** |
+
+Monotone against our own history, and exactly 50% against ourselves — the
+instrument passes its sanity checks. **67.2% pooled is the number to ratchet.**
+
+**Re-test: `BACKFILL_CROP`.**
+
+| | vs HEAD | `a49c8d3` | `f454950` | `c34629c` | POOLED |
+|---|---|---|---|---|---|
+| WHEAT margin | −2,145 | −1,535 | +3,342 | **+20,428** | 57.8%, **−5,998** |
+
+**Result: REVERT — falsification confirmed, and my earlier +23,068 was itself the
+artifact.** The whole apparent gain sits against one opponent. Against three of
+four builds wheat backfill is neutral-to-negative, and win rate and absolute
+score now agree it is worse. Testing against a single different opponent was not
+a fix for self-play bias, it was a second bias pointing the other way.
+
+**Caveat on the pool itself.** `c34629c` scores 58,874 where our live opponents
+average 74,697, so it is weaker than the field and we beat it 15/16. It earns its
+place on structural difference, but any result that lives only in that column
+should be treated as denial against one build rather than as strength. Watch for
+a pooled verdict that is carried entirely by one row.
+
+**Live result of 55514059: 918.5**, against 892.0 for the previous best
+(55397388) and 873.4 for the submission it replaces (55414416). Highest recorded
+on this project. Early scores move on few episodes, so treat it as encouraging
+rather than settled — but the direction agrees with the local 14/20, which is
+the first time a local verdict and a live score have been checked against each
+other here.
+
+**Next investigation** — re-test the two remaining market-facing falsifications
+under the pool: `GLUT_ALLOWANCE` for melon, and `NONONGOING_FERT_MARGIN` for
+fertilizing wheat. Both were judged under self-play. Then the `absorbable_units`
+shop-unlock schedule, which the bias does not touch.
+
+---
+
+## Checkpoint 0c — all three market-facing falsifications re-tested under the pool
+
+**Headline: self-play bias was real, and it overturned nothing.** All three
+verdicts stand. The instrument was flawed; the conclusions were not.
+
+**Melon glut** (seeds 180–187):
+
+| | win rate | Δ | our score | Δ |
+|---|---|---|---|---|
+| MELON=150 (control) | 78.1% | +0.0 | 85,110 | +0 |
+| MELON=60 | 43.8% | **−34.4** | 85,881 | **+772** |
+| MELON=20 | 39.1% | −39.1 | 75,160 | −9,949 |
+
+REVERT — and the disagreement flag earned its keep. Holding melon back *raises
+our own money* and *destroys the win rate*, because dumping melon is an attack:
+it crashes a shared market opponents lean on harder than we do. The original
+self-play verdict was right for a reason I had not understood.
+
+**Fertilizing wheat** (seeds 170–177):
+
+| | win rate | Δ | our score | Δ |
+|---|---|---|---|---|
+| 99.0 off (control) | 57.8% | +0.0 | 78,102 | +0 |
+| 1.20 | 54.7% | −3.1 | 77,941 | −161 |
+| 0.60 | 35.9% | −21.9 | 68,522 | −9,580 |
+
+REVERT. Monotone, both metrics agree, and 0.60 loses against **each** opponent
+separately — unlike wheat backfill, no single column carries this. The code is
+kept at 99.0, verified an exact no-op (75,568 both sides), so a future
+checkpoint can re-test by moving one constant rather than rebuilding the
+mechanic, which is what deleting it cost the first time.
+
+**Two bugs of mine, both fixed.** The pool's module cache keyed on
+`(ref, override)` crashed on dict values, and the obvious fix was worse than the
+crash: `import main` is a singleton, so several cache entries would have pointed
+at one module and every candidate would silently have run the last override
+applied. Now re-applied per game, verified by sweeping `TRAVEL_DIVISOR` (control
++0, alternative +26,153). Separately, that crash truncated `patterns.csv`,
+because the failing run had already opened it in write mode — 1,016 rows lost
+and restored from `7a205ac`, with column migration added so a renamed field can
+never do it again.
+
+**Streak question** (user-reported: "first three wins then always a loss").
+Not supported. Live sequence on 55514059 is `WWWWLLLWWWLLLWWL`, 9W-7L, longest
+streak 4; across 244 episodes it is 6. Wins are positively autocorrelated —
+57.7% after a win against 43.3% after a loss — the opposite of a streak-breaker,
+and the opponent is 3,655 *weaker* after our wins, which rules out the plausible
+ELO-promotion mechanism. Shuffling our own results reproduces a streak of ≥6 in
+89% of shuffles.
+
+**Result: no code change.** Three checkpoints, no agent modification. The
+baseline holds at 67.2% pooled.
+
+**Next investigation** — `absorbable_units` projecting the whole season's town
+demand from today's shop count. Untouched by self-play bias, diagnosed but
+unfixed, and a flat multiplier provably cannot fix it because day 0 and day 20
+want opposite corrections. Needs `townShopUnlockInterval = 3` modelled: expected
+shops remaining, integrated over `days_left`, instead of today's count × 1.2.
+
+---
+
+## Checkpoint 1 — model the shop-unlock schedule
+
+**Hypothesis.** `absorbable_units` estimates the entire remaining season's town
+demand from *today's* shop count, so on day 0 — when the town has no shops at
+all — it concludes the market can absorb almost nothing. That caps `room_cap` in
+`animal_targets` at about four cows and one sheep, which is the real gate on the
+opening herd, and is why raising `ANIMAL_TOTAL_CAP[1]` from 7 to 10 measured
+byte-identically.
+
+**Evidence.** From `kaggriculture.py`: shops unlock on every day divisible by 3
+up to a cap of 8, so the count on day *d* is exactly `min(8, d // 3)`. Verified
+against real replays: **120 of 120 day-observations match.** The resulting
+correction is 4.8× at day 0 and 2.7× at day 26 — the day-dependent shape that
+explains why the flat `FUTURE_DEMAND_SCALE` sweep failed at both ends.
+
+**Predicted effect.** Early `room_cap` rises, opening herd grows, day-10 cash
+rises toward the 5,825 the top decile holds.
+
+**Expected impact.** +3,000–8,000/game if the opening herd was the constraint.
+
+**Instrumentation.** `expected_town_demand` integrates expected shop count over
+remaining days; `EXPECTED_SHOP_DEMAND` is derived from `SHOPS` and independently
+reproduces the known fact that melon has zero shop demand.
+
+**Result: REVERT.** Pool, seeds 310–317:
+
+| | win rate | Δ | our score | Δ |
+|---|---|---|---|---|
+| False (control) | 70.3% | +0.0 | 89,309 | +0 |
+| True | 51.6% | **−18.8** | 81,452 | **−7,857** |
+
+Loses against HEAD and `a49c8d3` individually, not just pooled.
+
+**Why a verifiably correct model made the agent worse — the finding of this
+checkpoint.** `absorbable_units` is not consumed as a forecast, it is consumed
+as a **throttle**: it caps the herd via `room_cap` and acreage via
+`crop_tile_cap`. The under-estimate was *load-bearing*. It stood in for a limit
+on what the crew can tend and feed early, which nothing else in the agent
+models. Correcting the demand figure removes the brake, `room_cap` stops
+binding, `ANIMAL_TOTAL_CAP`'s 14 becomes the day-0 gate, and the agent expands
+into a herd it cannot service — the same failure as raising that cap to 18
+(3/16, −4,143).
+
+**So the binding early constraint is labour and feed, not market absorbency.**
+That reframes the day-10 cash gap: we are not poor because we mis-estimate
+demand, we are poor because the opening cannot service more animals, and the
+field's stronger agents must be solving the labour side, not the demand side.
+
+Code kept at `False`, an exact no-op control, so the next hypothesis can build
+on the model without re-deriving it.
+
+**Next investigation** — model early tending capacity explicitly: hands
+available × turns, minus travel, against the ~3 actions per animal per day that
+`ANIMAL_TOTAL_CAP`'s comment already prices. If that constraint is made real,
+the accurate demand model may then be safe to enable, and the two together are
+the first candidate this session with a mechanism behind both halves. Test the
+labour cap **alone** first, with `SHOP_UNLOCK_MODEL` still False.
+
+---

@@ -1,0 +1,30 @@
+round-robin over 5 submissions, 10 pairings, seeds [900, 901, 902, 903, 904, 905, 906, 907]
+160 games
+
+  c34629c vs 229c184: 2/16
+  c34629c vs f454950: 0/16
+  c34629c vs cc1f527: 0/16
+  c34629c vs 465fbf0: 2/16
+
+  229c184 vs f454950: 3/16
+  229c184 vs cc1f527: 5/16
+  229c184 vs 465fbf0: 2/16
+  f454950 vs cc1f527: 4/16
+
+  f454950 vs 465fbf0: 6/16
+  cc1f527 vs 465fbf0: 5/16
+
+revision    submission     live  local win%  mean score
+  229c184     55397388    892.0       37.5%      70,086
+  465fbf0     55536047    866.2       76.6%      84,573
+  f454950     55414416    851.8       60.9%      75,073
+  cc1f527     55514059    838.4       68.8%      77,325
+  c34629c     55387160    822.9        6.2%      64,786
+
+Spearman rank correlation, local win rate vs live rating: +0.30
+  Local ordering does NOT match live. Every local verdict so far is
+  close to a coin flip about the leaderboard, and the only honest
+  loop is submit-and-measure at the pace the rating settles.
+
+Caveat: five points, and the two newest ratings are still moving.
+A rank correlation on n=5 is indicative, not conclusive.

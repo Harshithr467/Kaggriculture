@@ -1,3 +1,5 @@
+# Revision: final-day harvest, transport, and same-turn liquidation.
+# Days 0-28 retain the uploaded policy. Only main.py is required to submit.
 import sys
 
 
@@ -322,6 +324,8 @@ RESERVE_FRAC = {
 
 
 def run_strategy(obs):
+    if obs.get("day", 0) == TOTAL_DAYS - 1:
+        return final_day_strategy(obs)
     player = obs["player"]
     me = obs["farms"][player]
     private = obs["private"]
@@ -1779,6 +1783,135 @@ def take_back(items, count):
 
 def make_job(pos, action, value, requires=None):
     return {"pos": pos, "action": action, "value": value, "requires": requires or {}}
+
+
+
+# This block is inserted before agent() in the single-file submission.
+
+def final_day_strategy(obs):
+    """Turn existing produce into banked coins before the last executable turn.
+
+    The 720-state episode has actions at steps 0..718. There is no final
+    overnight inventory deposit. Both unit deposits and their SELL orders can
+    execute on the same turn, in that order.
+    """
+    me = obs["farms"][obs["player"]]
+    private = obs["private"]
+    tiles = me["tiles"]
+    size = len(tiles)
+    day, hour = obs.get("day", 29), obs.get("hour", 0)
+    step = obs.get("step", day * TURNS_PER_DAY + hour)
+    remaining = TOTAL_DAYS * TURNS_PER_DAY - 1 - step
+    products = set(CROPS) | set(PRODUCT_BASE_PRICE)
+    prices = obs["market"]["prices"]
+    workers = [tuple(me["farmer"])] + [tuple(p) for p in me.get("hands", [])]
+    inventories = private.get("inventories", [])
+    actions = [["PASS"] for _ in workers]
+    projected_shed = dict(private.get("shed", {}))
+    space = max(0, 100 - sum(projected_shed.values()))
+    available_workers = []
+
+    for i, pos in enumerate(workers):
+        inv = inventories[i] if i < len(inventories) else {}
+        carried = {k: n for k, n in inv.items() if k in products and n > 0}
+        count = sum(carried.values())
+        home = nearest_shed_tile(pos, size)
+        distance = manhattan(pos, home)
+        value = sum(n * prices.get(k, base_price_for_item(k)) for k, n in carried.items())
+        # Stagger deposits to avoid all workers filling the 100-item shed on
+        # the last turn. Once a return starts these thresholds keep it stable.
+        return_now = count and (
+            distance == 0
+            or remaining <= distance + 2
+            or count >= 8 + 2 * distance
+            or value >= 900 + 500 * distance
+        )
+        if return_now:
+            if distance:
+                actions[i] = [step_toward(pos, home)]
+            elif space:
+                total = sum(max(0, n) for n in inv.values())
+                if total <= space:
+                    actions[i] = ["DROP"]
+                    for item, n in inv.items():
+                        if n > 0:
+                            projected_shed[item] = projected_shed.get(item, 0) + n
+                    space -= total
+                else:
+                    # PLACE retains excess items; DROP would destroy them.
+                    item = max(carried, key=lambda k: prices.get(k, base_price_for_item(k)))
+                    n = min(carried[item], space)
+                    actions[i] = ["PLACE", item, n]
+                    projected_shed[item] = projected_shed.get(item, 0) + n
+                    space -= n
+            continue
+        available_workers.append(i)
+
+    jobs = []
+    for y, row in enumerate(tiles):
+        for x, tile in enumerate(row):
+            if not isinstance(tile, dict):
+                continue
+            pos = (x, y)
+            home_distance = distance_to_shed(pos, size)
+            crop = tile.get("crop")
+            animal = tile.get("animal")
+            units = tile.get("yield_units", 0)
+            mature = animal in ANIMALS or (
+                crop in CROPS and day - tile.get("planted_day", day) >= CROPS[crop]["first_day"]
+            )
+            if units > 0 and mature:
+                product = ANIMALS[animal]["product"] if animal in ANIMALS else crop
+                value = units * prices.get(product, base_price_for_item(product))
+                jobs.append((pos, ["HARVEST"], value, home_distance))
+            if animal in ANIMALS and tile.get("fertilizer_available", False):
+                jobs.append((pos, ["COLLECT_FERTILIZER"], prices.get("FERTILIZER", 100), home_distance))
+
+    pairs = []
+    for i in available_workers:
+        for j, (pos, action, value, home_distance) in enumerate(jobs):
+            distance = manhattan(workers[i], pos)
+            # Reserve one action to harvest/collect and one to deposit.
+            if distance + 1 + home_distance + 1 > remaining:
+                continue
+            score = value / (1.0 + TRAVEL_DIVISOR * distance + 0.3 * home_distance)
+            pairs.append((score, -distance, i, j))
+    assigned, used = set(), set()
+    for score, neg_distance, i, j in sorted(pairs, reverse=True):
+        if i in assigned or j in used:
+            continue
+        pos, action, value, home_distance = jobs[j]
+        actions[i] = action if workers[i] == pos else [step_toward(workers[i], pos)]
+        assigned.add(i)
+        used.add(j)
+
+    # A worker with no reachable paying job starts taking its stock home.
+    for i in available_workers:
+        if i in assigned:
+            continue
+        inv = inventories[i] if i < len(inventories) else {}
+        if any(n > 0 and item in products for item, n in inv.items()):
+            home = nearest_shed_tile(workers[i], size)
+            if workers[i] != home:
+                actions[i] = [step_toward(workers[i], home)]
+
+    market = [["SELL", item, int(n)] for item, n in sorted(
+        projected_shed.items(),
+        key=lambda pair: pair[1] * prices.get(pair[0], base_price_for_item(pair[0])),
+        reverse=True,
+    ) if item in products and n > 0]
+    # Existing harvests still need a crew on the final morning.
+    if hour <= 2:
+        wanted = desired_hand_count(obs, me, {})
+        current = max(len(me.get("hands", [])), me.get("hires_today", 0))
+        money = me.get("money", 0)
+        for i in range(current, wanted):
+            cost = fib_cost(i + 1)
+            if money - cost < 100 or len(market) >= MAX_MARKET_ORDERS:
+                break
+            market.append(["HIRE"])
+            money -= cost
+    return {"farmer": actions[0], "hands": actions[1:], "market": market[:MAX_MARKET_ORDERS]}
 
 
 def agent(obs):

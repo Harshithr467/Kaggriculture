@@ -1,0 +1,894 @@
+{
+ "history": [
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.4907,
+    "ANIMAL_MARGIN_BIAS.COW": 1.11,
+    "TRAVEL_DIVISOR": 15.915,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 106
+   },
+   "soft": 0.6873417827963151,
+   "win_rate": 0.65625,
+   "ours": 104999.9375,
+   "theirs": 94692.375
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 1.9413,
+    "ANIMAL_MARGIN_BIAS.COW": 0.9584,
+    "TRAVEL_DIVISOR": 11.5871,
+    "MARGINAL_ACTION_VALUE": 31.1821,
+    "ANIMAL_TOTAL_CAP.3": 14,
+    "GLUT_ALLOWANCE.MELON": 215
+   },
+   "soft": 0.680707727249052,
+   "win_rate": 0.75,
+   "ours": 108625.3125,
+   "theirs": 99002.96875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 1.8137,
+    "ANIMAL_MARGIN_BIAS.COW": 1.0335,
+    "TRAVEL_DIVISOR": 13.7755,
+    "MARGINAL_ACTION_VALUE": 30.586,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 141
+   },
+   "soft": 0.6031004080742304,
+   "win_rate": 0.5625,
+   "ours": 97372.375,
+   "theirs": 91729.6875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 1.5113,
+    "ANIMAL_MARGIN_BIAS.COW": 0.7651,
+    "TRAVEL_DIVISOR": 6.0,
+    "MARGINAL_ACTION_VALUE": 33.0655,
+    "ANIMAL_TOTAL_CAP.3": 16,
+    "GLUT_ALLOWANCE.MELON": 117
+   },
+   "soft": 0.5812249380862553,
+   "win_rate": 0.5625,
+   "ours": 104756.9375,
+   "theirs": 98382.28125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.8321,
+    "ANIMAL_MARGIN_BIAS.COW": 0.6,
+    "TRAVEL_DIVISOR": 12.183,
+    "MARGINAL_ACTION_VALUE": 26.5493,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 216
+   },
+   "soft": 0.5418575219688023,
+   "win_rate": 0.5625,
+   "ours": 105386.375,
+   "theirs": 103596.3125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 1.4046,
+    "ANIMAL_MARGIN_BIAS.COW": 1.104,
+    "TRAVEL_DIVISOR": 8.4489,
+    "MARGINAL_ACTION_VALUE": 14.0,
+    "ANIMAL_TOTAL_CAP.3": 13,
+    "GLUT_ALLOWANCE.MELON": 157
+   },
+   "soft": 0.03229328592087371,
+   "win_rate": 0.0,
+   "ours": 65406.09375,
+   "theirs": 101813.40625
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.1304,
+    "ANIMAL_MARGIN_BIAS.COW": 1.3307,
+    "TRAVEL_DIVISOR": 10.4507,
+    "MARGINAL_ACTION_VALUE": 25.6572,
+    "ANIMAL_TOTAL_CAP.3": 12,
+    "GLUT_ALLOWANCE.MELON": 86
+   },
+   "soft": 0.5948829987785951,
+   "win_rate": 0.5,
+   "ours": 104911.15625,
+   "theirs": 98322.46875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 0.8,
+    "ANIMAL_MARGIN_BIAS.COW": 1.5365,
+    "TRAVEL_DIVISOR": 9.9614,
+    "MARGINAL_ACTION_VALUE": 24.6049,
+    "ANIMAL_TOTAL_CAP.3": 11,
+    "GLUT_ALLOWANCE.MELON": 185
+   },
+   "soft": 0.5771637972734223,
+   "win_rate": 0.5625,
+   "ours": 95741.90625,
+   "theirs": 89168.25
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 0.8,
+    "ANIMAL_MARGIN_BIAS.COW": 0.9415,
+    "TRAVEL_DIVISOR": 8.4181,
+    "MARGINAL_ACTION_VALUE": 30.9985,
+    "ANIMAL_TOTAL_CAP.3": 13,
+    "GLUT_ALLOWANCE.MELON": 97
+   },
+   "soft": 0.5964781110978858,
+   "win_rate": 0.5,
+   "ours": 89746.46875,
+   "theirs": 81798.59375
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.421,
+    "ANIMAL_MARGIN_BIAS.COW": 1.1543,
+    "TRAVEL_DIVISOR": 14.2404,
+    "MARGINAL_ACTION_VALUE": 39.0876,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 170
+   },
+   "soft": 0.5850265408511659,
+   "win_rate": 0.5625,
+   "ours": 103282.5625,
+   "theirs": 98472.46875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.707,
+    "ANIMAL_MARGIN_BIAS.COW": 1.038,
+    "TRAVEL_DIVISOR": 12.7957,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 14,
+    "GLUT_ALLOWANCE.MELON": 113
+   },
+   "soft": 0.570348511657628,
+   "win_rate": 0.46875,
+   "ours": 108299.65625,
+   "theirs": 101624.375
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.6866,
+    "ANIMAL_MARGIN_BIAS.COW": 1.3474,
+    "TRAVEL_DIVISOR": 11.7731,
+    "MARGINAL_ACTION_VALUE": 33.9376,
+    "ANIMAL_TOTAL_CAP.3": 15,
+    "GLUT_ALLOWANCE.MELON": 88
+   },
+   "soft": 0.6238870081708687,
+   "win_rate": 0.59375,
+   "ours": 103947.84375,
+   "theirs": 95346.71875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.2628,
+    "ANIMAL_MARGIN_BIAS.COW": 0.6127,
+    "TRAVEL_DIVISOR": 16.1664,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 180
+   },
+   "soft": 0.6621267232854382,
+   "win_rate": 0.78125,
+   "ours": 104506.78125,
+   "theirs": 97369.1875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.2151,
+    "ANIMAL_MARGIN_BIAS.COW": 1.244,
+    "TRAVEL_DIVISOR": 19.1499,
+    "MARGINAL_ACTION_VALUE": 40.5211,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 99
+   },
+   "soft": 0.669579603439785,
+   "win_rate": 0.71875,
+   "ours": 98514.71875,
+   "theirs": 86513.28125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 0.8,
+    "ANIMAL_MARGIN_BIAS.COW": 1.3,
+    "TRAVEL_DIVISOR": 12.8943,
+    "MARGINAL_ACTION_VALUE": 38.7187,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 243
+   },
+   "soft": 0.47350887272962205,
+   "win_rate": 0.4375,
+   "ours": 92980.875,
+   "theirs": 93932.3125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 1.6736,
+    "ANIMAL_MARGIN_BIAS.COW": 1.3812,
+    "TRAVEL_DIVISOR": 12.5115,
+    "MARGINAL_ACTION_VALUE": 29.2296,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 140
+   },
+   "soft": 0.5661572823815313,
+   "win_rate": 0.53125,
+   "ours": 92299.1875,
+   "theirs": 88779.21875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 1.909,
+    "ANIMAL_MARGIN_BIAS.COW": 1.6,
+    "TRAVEL_DIVISOR": 16.205,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 80
+   },
+   "soft": 0.5163032948548467,
+   "win_rate": 0.5,
+   "ours": 100398.5625,
+   "theirs": 98619.59375
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.3834,
+    "ANIMAL_MARGIN_BIAS.COW": 1.5056,
+    "TRAVEL_DIVISOR": 16.1137,
+    "MARGINAL_ACTION_VALUE": 28.3449,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 138
+   },
+   "soft": 0.6516037762650291,
+   "win_rate": 0.75,
+   "ours": 92039.15625,
+   "theirs": 84436.375
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 1.3708,
+    "ANIMAL_MARGIN_BIAS.COW": 1.6,
+    "TRAVEL_DIVISOR": 11.7563,
+    "MARGINAL_ACTION_VALUE": 37.8439,
+    "ANIMAL_TOTAL_CAP.3": 13,
+    "GLUT_ALLOWANCE.MELON": 149
+   },
+   "soft": 0.5908419132585908,
+   "win_rate": 0.625,
+   "ours": 100267.6875,
+   "theirs": 94838.40625
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.6083,
+    "ANIMAL_MARGIN_BIAS.COW": 1.1088,
+    "TRAVEL_DIVISOR": 11.1809,
+    "MARGINAL_ACTION_VALUE": 41.5184,
+    "ANIMAL_TOTAL_CAP.3": 15,
+    "GLUT_ALLOWANCE.MELON": 161
+   },
+   "soft": 0.6814690835580558,
+   "win_rate": 0.78125,
+   "ours": 105594.875,
+   "theirs": 96572.125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.2898,
+    "ANIMAL_MARGIN_BIAS.COW": 1.3435,
+    "TRAVEL_DIVISOR": 18.1172,
+    "MARGINAL_ACTION_VALUE": 38.779,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 80
+   },
+   "soft": 0.5434291148829062,
+   "win_rate": 0.59375,
+   "ours": 100947.59375,
+   "theirs": 97459.53125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.2679,
+    "ANIMAL_MARGIN_BIAS.COW": 1.3768,
+    "TRAVEL_DIVISOR": 12.7111,
+    "MARGINAL_ACTION_VALUE": 39.7039,
+    "ANIMAL_TOTAL_CAP.3": 14,
+    "GLUT_ALLOWANCE.MELON": 96
+   },
+   "soft": 0.6818486822503912,
+   "win_rate": 0.625,
+   "ours": 102753.65625,
+   "theirs": 90984.71875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.9435,
+    "ANIMAL_MARGIN_BIAS.COW": 0.8261,
+    "TRAVEL_DIVISOR": 17.4435,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 89
+   },
+   "soft": 0.653965342806293,
+   "win_rate": 0.5625,
+   "ours": 105520.28125,
+   "theirs": 94334.34375
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 1.8543,
+    "ANIMAL_MARGIN_BIAS.COW": 0.8089,
+    "TRAVEL_DIVISOR": 21.8396,
+    "MARGINAL_ACTION_VALUE": 34.7671,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 112
+   },
+   "soft": 0.6846437071348624,
+   "win_rate": 0.75,
+   "ours": 108046.625,
+   "theirs": 99061.65625
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.5831,
+    "ANIMAL_MARGIN_BIAS.COW": 1.6,
+    "TRAVEL_DIVISOR": 22.0,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 16,
+    "GLUT_ALLOWANCE.MELON": 80
+   },
+   "soft": 0.5504222532593033,
+   "win_rate": 0.5625,
+   "ours": 108262.125,
+   "theirs": 103322.8125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 1.0742,
+    "TRAVEL_DIVISOR": 20.9726,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 15,
+    "GLUT_ALLOWANCE.MELON": 131
+   },
+   "soft": 0.7391543709998174,
+   "win_rate": 0.78125,
+   "ours": 86401.6875,
+   "theirs": 72863.5
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 1.2028,
+    "ANIMAL_MARGIN_BIAS.COW": 1.0011,
+    "TRAVEL_DIVISOR": 20.7576,
+    "MARGINAL_ACTION_VALUE": 22.7555,
+    "ANIMAL_TOTAL_CAP.3": 15,
+    "GLUT_ALLOWANCE.MELON": 165
+   },
+   "soft": 0.03566864106063348,
+   "win_rate": 0.0,
+   "ours": 63228.71875,
+   "theirs": 97231.3125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 1.2523,
+    "TRAVEL_DIVISOR": 18.9699,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 16,
+    "GLUT_ALLOWANCE.MELON": 86
+   },
+   "soft": 0.63870895470152,
+   "win_rate": 0.59375,
+   "ours": 98185.71875,
+   "theirs": 89626.09375
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 0.8162,
+    "TRAVEL_DIVISOR": 20.5961,
+    "MARGINAL_ACTION_VALUE": 41.6849,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 80
+   },
+   "soft": 0.5427626542226506,
+   "win_rate": 0.4375,
+   "ours": 111814.5625,
+   "theirs": 107466.875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.2062,
+    "ANIMAL_MARGIN_BIAS.COW": 1.2075,
+    "TRAVEL_DIVISOR": 19.1851,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 13,
+    "GLUT_ALLOWANCE.MELON": 144
+   },
+   "soft": 0.6596645204566164,
+   "win_rate": 0.6875,
+   "ours": 95891.59375,
+   "theirs": 86640.8125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 0.7664,
+    "TRAVEL_DIVISOR": 22.0,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 220
+   },
+   "soft": 0.6552573195226571,
+   "win_rate": 0.65625,
+   "ours": 99370.90625,
+   "theirs": 91741.875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 1.6,
+    "TRAVEL_DIVISOR": 20.1523,
+    "MARGINAL_ACTION_VALUE": 34.14,
+    "ANIMAL_TOTAL_CAP.3": 13,
+    "GLUT_ALLOWANCE.MELON": 121
+   },
+   "soft": 0.6636008085174513,
+   "win_rate": 0.6875,
+   "ours": 101946.1875,
+   "theirs": 91906.96875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.4331,
+    "ANIMAL_MARGIN_BIAS.COW": 0.8896,
+    "TRAVEL_DIVISOR": 19.1837,
+    "MARGINAL_ACTION_VALUE": 32.7055,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 170
+   },
+   "soft": 0.6634932021876698,
+   "win_rate": 0.78125,
+   "ours": 106392.3125,
+   "theirs": 98573.1875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.8614,
+    "ANIMAL_MARGIN_BIAS.COW": 0.6479,
+    "TRAVEL_DIVISOR": 9.7751,
+    "MARGINAL_ACTION_VALUE": 42.1348,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 80
+   },
+   "soft": 0.5535077043437414,
+   "win_rate": 0.46875,
+   "ours": 106198.09375,
+   "theirs": 101380.71875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 0.7353,
+    "TRAVEL_DIVISOR": 19.566,
+    "MARGINAL_ACTION_VALUE": 37.73,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 186
+   },
+   "soft": 0.661520986019013,
+   "win_rate": 0.8125,
+   "ours": 104065.40625,
+   "theirs": 96749.34375
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 0.6948,
+    "TRAVEL_DIVISOR": 22.0,
+    "MARGINAL_ACTION_VALUE": 41.8672,
+    "ANIMAL_TOTAL_CAP.3": 15,
+    "GLUT_ALLOWANCE.MELON": 85
+   },
+   "soft": 0.6532981188342554,
+   "win_rate": 0.625,
+   "ours": 96077.25,
+   "theirs": 86876.71875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 1.3472,
+    "TRAVEL_DIVISOR": 22.0,
+    "MARGINAL_ACTION_VALUE": 23.0954,
+    "ANIMAL_TOTAL_CAP.3": 16,
+    "GLUT_ALLOWANCE.MELON": 210
+   },
+   "soft": 0.05751540419286771,
+   "win_rate": 0.03125,
+   "ours": 68907.96875,
+   "theirs": 98147.84375
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.9059,
+    "ANIMAL_MARGIN_BIAS.COW": 1.4249,
+    "TRAVEL_DIVISOR": 15.723,
+    "MARGINAL_ACTION_VALUE": 44.1418,
+    "ANIMAL_TOTAL_CAP.3": 13,
+    "GLUT_ALLOWANCE.MELON": 135
+   },
+   "soft": 0.6405848657757883,
+   "win_rate": 0.59375,
+   "ours": 95779.28125,
+   "theirs": 88376.125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.8449,
+    "ANIMAL_MARGIN_BIAS.COW": 1.3714,
+    "TRAVEL_DIVISOR": 18.5811,
+    "MARGINAL_ACTION_VALUE": 40.7493,
+    "ANIMAL_TOTAL_CAP.3": 11,
+    "GLUT_ALLOWANCE.MELON": 124
+   },
+   "soft": 0.5340807550327811,
+   "win_rate": 0.4375,
+   "ours": 112614.9375,
+   "theirs": 107324.46875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.596,
+    "ANIMAL_MARGIN_BIAS.COW": 0.8411,
+    "TRAVEL_DIVISOR": 22.0,
+    "MARGINAL_ACTION_VALUE": 35.636,
+    "ANIMAL_TOTAL_CAP.3": 13,
+    "GLUT_ALLOWANCE.MELON": 260
+   },
+   "soft": 0.7106253163864811,
+   "win_rate": 0.84375,
+   "ours": 113226.03125,
+   "theirs": 102419.25
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 1.4038,
+    "TRAVEL_DIVISOR": 22.0,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 16,
+    "GLUT_ALLOWANCE.MELON": 123
+   },
+   "soft": 0.6236394186415857,
+   "win_rate": 0.65625,
+   "ours": 99399.96875,
+   "theirs": 91268.25
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 0.8939,
+    "TRAVEL_DIVISOR": 15.6376,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 14,
+    "GLUT_ALLOWANCE.MELON": 161
+   },
+   "soft": 0.7260659323776416,
+   "win_rate": 0.875,
+   "ours": 110427.34375,
+   "theirs": 98699.6875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 1.5384,
+    "TRAVEL_DIVISOR": 22.0,
+    "MARGINAL_ACTION_VALUE": 33.947,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 124
+   },
+   "soft": 0.5705553750758228,
+   "win_rate": 0.5625,
+   "ours": 111748.34375,
+   "theirs": 105782.28125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.0335,
+    "ANIMAL_MARGIN_BIAS.COW": 1.5584,
+    "TRAVEL_DIVISOR": 20.5176,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 12,
+    "GLUT_ALLOWANCE.MELON": 170
+   },
+   "soft": 0.7209588467365203,
+   "win_rate": 0.8125,
+   "ours": 111521.03125,
+   "theirs": 100286.25
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.6005,
+    "ANIMAL_MARGIN_BIAS.COW": 1.552,
+    "TRAVEL_DIVISOR": 22.0,
+    "MARGINAL_ACTION_VALUE": 37.7912,
+    "ANIMAL_TOTAL_CAP.3": 14,
+    "GLUT_ALLOWANCE.MELON": 193
+   },
+   "soft": 0.6283436317344847,
+   "win_rate": 0.71875,
+   "ours": 108335.625,
+   "theirs": 101573.4375
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 1.6,
+    "TRAVEL_DIVISOR": 11.2582,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 14,
+    "GLUT_ALLOWANCE.MELON": 242
+   },
+   "soft": 0.6592052457392648,
+   "win_rate": 0.6875,
+   "ours": 107853.71875,
+   "theirs": 99207.625
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 2.8356,
+    "ANIMAL_MARGIN_BIAS.COW": 1.3203,
+    "TRAVEL_DIVISOR": 22.0,
+    "MARGINAL_ACTION_VALUE": 22.519,
+    "ANIMAL_TOTAL_CAP.3": 13,
+    "GLUT_ALLOWANCE.MELON": 198
+   },
+   "soft": 0.06699177451360623,
+   "win_rate": 0.0,
+   "ours": 66417.46875,
+   "theirs": 95244.15625
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.1187,
+    "ANIMAL_MARGIN_BIAS.COW": 1.0129,
+    "TRAVEL_DIVISOR": 15.9744,
+    "MARGINAL_ACTION_VALUE": 34.3729,
+    "ANIMAL_TOTAL_CAP.3": 9,
+    "GLUT_ALLOWANCE.MELON": 131
+   },
+   "soft": 0.7909188467148497,
+   "win_rate": 0.90625,
+   "ours": 91903.78125,
+   "theirs": 77054.6875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.3991,
+    "ANIMAL_MARGIN_BIAS.COW": 0.7898,
+    "TRAVEL_DIVISOR": 22.0,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 17,
+    "GLUT_ALLOWANCE.MELON": 108
+   },
+   "soft": 0.6867901458551684,
+   "win_rate": 0.8125,
+   "ours": 101140.96875,
+   "theirs": 90989.125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.4282,
+    "ANIMAL_MARGIN_BIAS.COW": 1.0955,
+    "TRAVEL_DIVISOR": 19.0401,
+    "MARGINAL_ACTION_VALUE": 40.3689,
+    "ANIMAL_TOTAL_CAP.3": 11,
+    "GLUT_ALLOWANCE.MELON": 136
+   },
+   "soft": 0.6266846567863512,
+   "win_rate": 0.5625,
+   "ours": 102463.78125,
+   "theirs": 95317.28125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 0.6007,
+    "TRAVEL_DIVISOR": 18.1731,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 14,
+    "GLUT_ALLOWANCE.MELON": 103
+   },
+   "soft": 0.6309436733282354,
+   "win_rate": 0.65625,
+   "ours": 117319.71875,
+   "theirs": 108877.25
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.4687,
+    "ANIMAL_MARGIN_BIAS.COW": 1.1349,
+    "TRAVEL_DIVISOR": 8.8824,
+    "MARGINAL_ACTION_VALUE": 34.3509,
+    "ANIMAL_TOTAL_CAP.3": 13,
+    "GLUT_ALLOWANCE.MELON": 208
+   },
+   "soft": 0.7260442019553921,
+   "win_rate": 0.875,
+   "ours": 111362.25,
+   "theirs": 99746.8125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 1.0502,
+    "TRAVEL_DIVISOR": 16.7789,
+    "MARGINAL_ACTION_VALUE": 38.5474,
+    "ANIMAL_TOTAL_CAP.3": 14,
+    "GLUT_ALLOWANCE.MELON": 192
+   },
+   "soft": 0.703556764009322,
+   "win_rate": 0.8125,
+   "ours": 109670.65625,
+   "theirs": 99261.75
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 0.854,
+    "TRAVEL_DIVISOR": 20.8045,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 15,
+    "GLUT_ALLOWANCE.MELON": 195
+   },
+   "soft": 0.7197902055979085,
+   "win_rate": 0.8125,
+   "ours": 105327.78125,
+   "theirs": 94370.625
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 1.2461,
+    "TRAVEL_DIVISOR": 16.0534,
+    "MARGINAL_ACTION_VALUE": 16.0429,
+    "ANIMAL_TOTAL_CAP.3": 9,
+    "GLUT_ALLOWANCE.MELON": 129
+   },
+   "soft": 0.036452704581107054,
+   "win_rate": 0.0,
+   "ours": 67904.75,
+   "theirs": 106873.46875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 0.7215,
+    "TRAVEL_DIVISOR": 10.5552,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 9,
+    "GLUT_ALLOWANCE.MELON": 165
+   },
+   "soft": 0.7189690630723811,
+   "win_rate": 0.71875,
+   "ours": 108822.78125,
+   "theirs": 97460.40625
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 1.1852,
+    "TRAVEL_DIVISOR": 19.2285,
+    "MARGINAL_ACTION_VALUE": 20.8291,
+    "ANIMAL_TOTAL_CAP.3": 15,
+    "GLUT_ALLOWANCE.MELON": 148
+   },
+   "soft": 0.06073917158462294,
+   "win_rate": 0.0625,
+   "ours": 69625.03125,
+   "theirs": 103653.15625
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.4754,
+    "ANIMAL_MARGIN_BIAS.COW": 0.676,
+    "TRAVEL_DIVISOR": 16.7721,
+    "MARGINAL_ACTION_VALUE": 34.2782,
+    "ANIMAL_TOTAL_CAP.3": 10,
+    "GLUT_ALLOWANCE.MELON": 150
+   },
+   "soft": 0.6760071775886977,
+   "win_rate": 0.6875,
+   "ours": 114087.78125,
+   "theirs": 105807.8125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.0287,
+    "ANIMAL_MARGIN_BIAS.COW": 0.8542,
+    "TRAVEL_DIVISOR": 16.5229,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 15,
+    "GLUT_ALLOWANCE.MELON": 205
+   },
+   "soft": 0.6723146997531468,
+   "win_rate": 0.78125,
+   "ours": 107451.625,
+   "theirs": 98347.6875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.0894,
+    "ANIMAL_MARGIN_BIAS.COW": 0.6644,
+    "TRAVEL_DIVISOR": 18.3001,
+    "MARGINAL_ACTION_VALUE": 30.0855,
+    "ANIMAL_TOTAL_CAP.3": 10,
+    "GLUT_ALLOWANCE.MELON": 218
+   },
+   "soft": 0.7005429459123783,
+   "win_rate": 0.75,
+   "ours": 112165.78125,
+   "theirs": 102959.9375
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.2449,
+    "ANIMAL_MARGIN_BIAS.COW": 1.2235,
+    "TRAVEL_DIVISOR": 12.2923,
+    "MARGINAL_ACTION_VALUE": 39.388,
+    "ANIMAL_TOTAL_CAP.3": 11,
+    "GLUT_ALLOWANCE.MELON": 135
+   },
+   "soft": 0.6374205365962446,
+   "win_rate": 0.625,
+   "ours": 97199.0625,
+   "theirs": 90393.3125
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 0.7393,
+    "TRAVEL_DIVISOR": 16.9062,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 13,
+    "GLUT_ALLOWANCE.MELON": 171
+   },
+   "soft": 0.7392807886256578,
+   "win_rate": 0.84375,
+   "ours": 109561.3125,
+   "theirs": 97404.46875
+  },
+  {
+   "overrides": {
+    "ANIMAL_MARGIN_BIAS.SHEEP": 3.5,
+    "ANIMAL_MARGIN_BIAS.COW": 1.2679,
+    "TRAVEL_DIVISOR": 20.2009,
+    "MARGINAL_ACTION_VALUE": 45.0,
+    "ANIMAL_TOTAL_CAP.3": 14,
+    "GLUT_ALLOWANCE.MELON": 130
+   },
+   "soft": 0.7368646113219673,
+   "win_rate": 0.875,
+   "ours": 93122.21875,
+   "theirs": 81436.0625
+  }
+ ],
+ "best_vector": [
+  3.11874047009554,
+  1.0128816031423726,
+  15.974360143467269,
+  34.37294495757208,
+  9.0,
+  130.86533163530157
+ ]
+}
