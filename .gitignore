@@ -16,3 +16,7 @@ replays/
 
 # Downloaded daily episode dumps (~31 MB per episode)
 kaggle_episode_data/daily/*/
+
+# Build artifacts: regenerable bundles and downloaded archives
+kaggriculture-handoff.zip
+kaggle_episode_data/*.zip
