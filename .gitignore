@@ -20,3 +20,4 @@ kaggle_episode_data/daily/*/
 # Build artifacts: regenerable bundles and downloaded archives
 kaggriculture-handoff.zip
 kaggle_episode_data/*.zip
+replays-*.zip
