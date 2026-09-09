@@ -58,7 +58,12 @@ def parse_entrant(text):
     """`path[:NAME=VALUE,...][#label]` -> (label, path, ((name, value), ...))."""
     label = None
     if "#" in text:
-        text, label = text.rsplit("#", 1)
+        # Split on the FIRST '#', not the last: a label legitimately contains
+        # one (e.g. "Mengfei Li #5 (2920)") while a path does not. rsplit here
+        # silently produced a path of "kernels/opp.py#Mengfei Li" and a
+        # spec_from_file_location of None, surfacing only as an
+        # AttributeError on spec.loader inside a worker.
+        text, label = text.split("#", 1)
     path, _, overrides = text.partition(":")
     pairs = []
     if overrides:
