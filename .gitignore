@@ -21,3 +21,11 @@ kaggle_episode_data/daily/*/
 kaggriculture-handoff.zip
 kaggle_episode_data/*.zip
 replays-*.zip
+top25-replays*.zip
+top-opponents-replays.zip
+
+# Per-submission replay parse cache, rebuilt by bench_losses.py --rebuild-cache
+kaggle_episode_data/replay_cache_*.json.gz
+
+# Machine-local permission grants, not shared project config
+.claude/settings.local.json
