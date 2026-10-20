@@ -100,7 +100,8 @@ def submissions():
 def analyse_replays(ref, rank_of):
     """Download this submission's replays and score them by opponent rank."""
     subprocess.run([sys.executable, "analyze_live_submission.py", ref],
-                   capture_output=True, text=True, timeout=7200)
+                   capture_output=True, text=True, encoding="utf-8",
+                   errors="replace", timeout=7200)
     folder = os.path.join(DATA, "replays", ref)
     paths = sorted(glob.glob(os.path.join(folder, "*.json")))
     rows, mirrors = [], 0

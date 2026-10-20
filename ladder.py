@@ -67,7 +67,23 @@ def parse_entrant(text):
     path, _, overrides = text.partition(":")
     pairs = []
     if overrides:
-        for chunk in overrides.split(","):
+        # Split on commas that separate assignments, NOT on commas inside a
+        # value: a tuple constant like V9_FERT_AGES=(1,2) is one override, and
+        # a plain split produced "V9_FERT_AGES=(1" and "2)" -- surfacing only as
+        # SyntaxError: '(' was never closed, from eval.
+        chunks, depth, start = [], 0, 0
+        for i, ch in enumerate(overrides):
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                chunks.append(overrides[start:i])
+                start = i + 1
+        chunks.append(overrides[start:])
+        for chunk in chunks:
+            if not chunk.strip():
+                continue
             name, _, raw = chunk.partition("=")
             pairs.append((name.strip(), eval(raw.strip())))
     if label is None:

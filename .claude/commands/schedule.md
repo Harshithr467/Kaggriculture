@@ -92,6 +92,10 @@ Every screening block must be one no candidate has seen. Used so far:
 83001-83020, 83101-83120           V5 final blocks (external)
 88000-88039, 88100-88119, 88200-88219   our V4 screening
 91000-91039, 91100-91119           our V5 screening
+92000-92039                        2026-09-12 V5-vs-V4 veto check
+93000-93019                        2026-09-13 V5/V4 vs the public LB2727 and LB2448 agents
+94000-94039                        2026-09-15 candidate_v6 wheat-swap veto check
+95000-95039                        2026-09-19 public v9/4 (thomastschinkel) vs candidate_v5 veto check
 ```
 
 Pick the next unused block and append it here.
